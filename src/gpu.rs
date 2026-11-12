@@ -141,7 +141,7 @@ struct PreviewSlot {
 #[derive(Default)]
 pub struct TerminalOverlays {
     pub selection: Vec<(usize, usize, usize)>,
-    pub cursor: Option<(u32, u32)>,
+    pub cursor: Option<crate::cursor::Cursor>,
     pub underline: Option<(f32, f32, f32)>,
     pub notice: Option<String>,
     pub images: Vec<ImageQuad>,
@@ -945,7 +945,7 @@ impl Gpu {
             for &(row, _, _) in next.selection.iter().chain(&old.selection) { damage.add_line(row); }
         }
         if next.cursor != old.cursor {
-            for &(_, row) in next.cursor.iter().chain(old.cursor.iter()) { damage.add_line(row as usize); }
+            for cursor in next.cursor.iter().chain(old.cursor.iter()) { damage.add_line(cursor.row as usize); }
         }
         if next.underline != old.underline {
             for &(_, y, _) in next.underline.iter().chain(old.underline.iter()) {

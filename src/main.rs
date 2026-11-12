@@ -6,6 +6,7 @@
 
 mod clipboard;
 mod config;
+mod cursor;
 mod damage;
 mod egui_ui;
 mod ui_style;
@@ -44,6 +45,7 @@ use winit::platform::wayland::WindowAttributesExtWayland as _;
 use winit::window::{Window, WindowId};
 
 use config::Config;
+use cursor::Cursor;
 use gpu::Gpu;
 use damage::Damage;
 use tab::{SemanticMark, SpikeListener, Tab};
@@ -214,7 +216,7 @@ struct FrameData {
     bg: [f32; 3],
     cursor_color: [f32; 3],
     runs: Vec<Run>,
-    cursor: Option<(u32, u32)>,
+    cursor: Option<Cursor>,
 }
 
 /// Exact rendering inputs outside Alacritty's cell damage tracking.
@@ -2144,10 +2146,11 @@ impl App {
         } else {
             match content.cursor.shape {
                 alacritty_terminal::vte::ansi::CursorShape::Hidden => None,
-                _ if content.cursor.point.line.0 + (content.display_offset as i32) < self.wins[self.cur].rows as i32 => Some((
-                    content.cursor.point.column.0 as u32,
-                    (content.cursor.point.line.0 + content.display_offset as i32) as u32,
-                )),
+                shape if (0..self.wins[self.cur].rows as i32).contains(&(content.cursor.point.line.0 + content.display_offset as i32)) => Some(Cursor {
+                    column: content.cursor.point.column.0 as u32,
+                    row: (content.cursor.point.line.0 + content.display_offset as i32) as u32,
+                    shape,
+                }),
                 _ => None,
             }
         };
@@ -2955,14 +2958,12 @@ impl App {
                 { let c = self.config.adjust_terminal_color(self.config.selection_color.to_f32()); [c[0], c[1], c[2], 0.35] },
             );
         }
-        if let Some((cx, cy)) = frame.cursor {
-            {
+        if let Some(cursor) = frame.cursor {
+            let (cx, cy) = (cursor.column, cursor.row);
+            for [x, y, width, height] in cursor.rects(self.cell_w, self.cell_h, strip_h) {
                 push_rect(
                     &mut gpu.rects,
-                    cx as f32 * self.cell_w,
-                    strip_h + cy as f32 * self.cell_h,
-                    self.cell_w,
-                    self.cell_h,
+                    x, y, width, height,
                     [frame.cursor_color[0], frame.cursor_color[1], frame.cursor_color[2], 0.55],
                 );
             }
