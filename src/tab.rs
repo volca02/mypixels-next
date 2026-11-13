@@ -329,34 +329,14 @@ impl Tab {
     pub fn update_selection(&self, at: Point, side: Side) {
         let mut term = self.term.lock();
         if let Some(sel) = term.selection.as_mut() {
-            // The cell under the press always stays in the selection, VTE's
-            // rule. The range drops the start cell when the start anchor's
-            // side faces INTO it, so as the drag moves the start anchor's
-            // side must face away from the drag: Left when the selection
-            // grows right/down from the press, Right when it grows left/up.
-            match sel.ty {
-                SelectionType::Block => {
-                    // A block is a rectangle of whole cells, edges inclusive:
-                    // both anchor sides face outward. (With the pointer's
-                    // half-cell sides, a vertical drag in one column reads
-                    // as zero width and selects nothing.)
-                    if at.column >= sel.start_point().column {
-                        sel.set_start_side(Side::Left);
-                        sel.update(at, Side::Right);
-                    } else {
-                        sel.set_start_side(Side::Right);
-                        sel.update(at, Side::Left);
-                    }
-                    return;
-                },
-                SelectionType::Simple => {
-                    let start = sel.start_point();
-                    sel.set_start_side(if at >= start { Side::Left } else { Side::Right });
-                },
-                _ => {},
-            }
-            sel.update(at, side);
+            extend_selection(sel, at, side);
         }
+    }
+
+    /// Scroll a drag and keep its endpoint at the same viewport cell. A no-op
+    /// scroll must not expand a click or change the current selection.
+    pub fn scroll_selection(&self, delta: i32, at: Point, side: Side) -> bool {
+        scroll_selection(&mut self.term.lock(), delta, at, side)
     }
 
     /// Select everything: the whole scrollback and the visible screen. This
@@ -533,6 +513,52 @@ impl Tab {
     }
 }
 
+fn extend_selection(sel: &mut Selection, at: Point, side: Side) {
+    // The cell under the press always stays in the selection, VTE's
+    // rule. The range drops the start cell when the start anchor's
+    // side faces INTO it, so as the drag moves the start anchor's
+    // side must face away from the drag: Left when the selection
+    // grows right/down from the press, Right when it grows left/up.
+    match sel.ty {
+        SelectionType::Block => {
+            // A block is a rectangle of whole cells, edges inclusive:
+            // both anchor sides face outward. (With the pointer's
+            // half-cell sides, a vertical drag in one column reads
+            // as zero width and selects nothing.)
+            if at.column >= sel.start_point().column {
+                sel.set_start_side(Side::Left);
+                sel.update(at, Side::Right);
+            } else {
+                sel.set_start_side(Side::Right);
+                sel.update(at, Side::Left);
+            }
+            return;
+        },
+        SelectionType::Simple => {
+            let start = sel.start_point();
+            let forward = at >= start;
+            sel.set_start_side(if forward { Side::Left } else { Side::Right });
+            sel.update(at, if forward { Side::Right } else { Side::Left });
+            return;
+        },
+        _ => {},
+    }
+    sel.update(at, side);
+}
+
+fn scroll_selection<T: EventListener>(term: &mut Term<T>, delta: i32, at: Point, side: Side) -> bool {
+    let previous = term.grid().display_offset();
+    term.scroll_display(alacritty_terminal::grid::Scroll::Delta(delta));
+    let offset = term.grid().display_offset();
+    if offset == previous {
+        return false;
+    }
+    if let Some(sel) = term.selection.as_mut() {
+        extend_selection(sel, Point::new(at.line - offset, at.column), side);
+    }
+    true
+}
+
 /// Preserve newlines while normalizing foreign line endings. A plain PTY wants
 /// CR for Enter; bracketed paste wants LF. Embedded ESC/ETX cannot terminate a
 /// bracketed paste early and turn the remainder into shell keypresses.
@@ -546,6 +572,129 @@ fn paste_bytes(text: &str, bracketed: bool) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alacritty_terminal::event::VoidListener;
+    use alacritty_terminal::term::test::TermSize;
+    use alacritty_terminal::vte::ansi::Processor;
+
+    fn terminal() -> Term<VoidListener> {
+        let mut term = Term::new(TermConfig::default(), &TermSize::new(16, 6), VoidListener);
+        let mut parser: Processor = Processor::default();
+        parser.advance(&mut term,
+            b"alpha beta gamma\r\nshort\r\nthird row\r\nfourth row\r\nalpha beta gamma\r\nlast row");
+        term
+    }
+
+    fn point(row: i32, col: usize) -> Point {
+        Point::new(Line(row), Column(col))
+    }
+
+    fn select(term: &mut Term<VoidListener>, ty: SelectionType, start: Point, end: Point, side: Side) {
+        let mut selection = Selection::new(ty, start, side);
+        if ty != SelectionType::Simple { selection.include_all(); }
+        extend_selection(&mut selection, end, side);
+        term.selection = Some(selection);
+    }
+
+    #[test]
+    fn linear_selection_includes_both_cells_in_both_directions() {
+        let mut term = terminal();
+        for side in [Side::Left, Side::Right] {
+            for (start, end) in [(point(0, 6), point(1, 2)), (point(1, 2), point(0, 6))] {
+                select(&mut term, SelectionType::Simple, start, end, side);
+                assert_eq!(term.selection_to_string().as_deref(), Some("beta gamma\nsho"));
+            }
+            select(&mut term, SelectionType::Simple, point(0, 8), point(0, 6), side);
+            assert_eq!(term.selection_to_string().as_deref(), Some("bet"));
+            extend_selection(term.selection.as_mut().unwrap(), point(0, 9), side);
+            assert_eq!(term.selection_to_string().as_deref(), Some("ta"));
+        }
+    }
+
+    #[test]
+    fn word_drag_snaps_both_ends_and_can_reverse_across_the_anchor() {
+        let mut term = terminal();
+        for side in [Side::Left, Side::Right] {
+            select(&mut term, SelectionType::Semantic, point(0, 7), point(0, 7), side);
+            assert_eq!(term.selection_to_string().as_deref(), Some("beta"));
+            extend_selection(term.selection.as_mut().unwrap(), point(0, 13), side);
+            assert_eq!(term.selection_to_string().as_deref(), Some("beta gamma"));
+            extend_selection(term.selection.as_mut().unwrap(), point(0, 2), side);
+            assert_eq!(term.selection_to_string().as_deref(), Some("alpha beta"));
+            for (start, end) in [(point(0, 7), point(1, 2)), (point(1, 2), point(0, 7))] {
+                select(&mut term, SelectionType::Semantic, start, end, side);
+                assert_eq!(term.selection_to_string().as_deref(), Some("beta gamma\nshort"));
+            }
+        }
+    }
+
+    #[test]
+    fn block_copy_preserves_blank_cells_rows_and_tab_layout() {
+        let mut term = terminal();
+        for (start, end) in [
+            (point(0, 3), point(2, 8)), (point(2, 8), point(0, 3)),
+            (point(0, 8), point(2, 3)), (point(2, 3), point(0, 8)),
+        ] {
+            select(&mut term, SelectionType::Block, start, end, Side::Left);
+            assert_eq!(term.selection_to_string().as_deref(), Some("ha bet\nrt    \nrd row"));
+        }
+        let mut parser: Processor = Processor::default();
+        parser.advance(&mut term, b"\x1b[2J\x1b[HA\tB");
+        select(&mut term, SelectionType::Block, point(0, 0), point(1, 15), Side::Right);
+        assert_eq!(term.selection_to_string().as_deref(), Some("A       B       \n                "));
+    }
+
+    #[test]
+    fn block_copy_keeps_physical_rows_across_soft_wraps_and_unicode() {
+        let mut term = terminal();
+        let mut parser: Processor = Processor::default();
+        parser.advance(&mut term, b"\x1b[2J\x1b[HabcdefghijklmnopQRST");
+        select(&mut term, SelectionType::Block, point(0, 0), point(1, 15), Side::Left);
+        assert_eq!(term.selection_to_string().as_deref(), Some("abcdefghijklmnop\nQRST            "));
+        select(&mut term, SelectionType::Block, point(0, 1), point(1, 1), Side::Left);
+        assert_eq!(term.selection_to_string().as_deref(), Some("b\nR"));
+        parser.advance(&mut term, "\x1b[2J\x1b[H界e\u{301}\r\nč".as_bytes());
+        select(&mut term, SelectionType::Block, point(0, 0), point(1, 4), Side::Left);
+        assert_eq!(term.selection_to_string().as_deref(), Some("界e\u{301}  \nč    "));
+    }
+
+    #[test]
+    fn bottom_two_rows_stay_separate_for_every_selection_mode() {
+        let mut term = terminal();
+        for ty in [SelectionType::Simple, SelectionType::Semantic, SelectionType::Block, SelectionType::Lines] {
+            for row in [4, 5] {
+                for (first, last) in [(1, 3), (3, 1)] {
+                    select(&mut term, ty, point(row, first), point(row, last), Side::Left);
+                    let before = term.selection_to_string();
+                    // The downward autoscroll band covers both rows, but at
+                    // the live bottom it cannot scroll. This must be a no-op.
+                    assert!(!scroll_selection(&mut term, -3, point(row, last), Side::Right));
+                    assert_eq!(term.selection_to_string(), before);
+                    let range = term.selection.as_ref().unwrap().to_range(&term).unwrap();
+                    assert_eq!(range.start.line, Line(row));
+                    assert_eq!(range.end.line, Line(row));
+                }
+            }
+        }
+        term.selection = Some(Selection::new(SelectionType::Simple, point(4, 1), Side::Left));
+        assert!(!scroll_selection(&mut term, -3, point(4, 1), Side::Right));
+        assert!(term.selection.as_ref().unwrap().is_empty());
+    }
+
+    #[test]
+    fn real_autoscroll_keeps_endpoint_under_pointer_instead_of_last_row() {
+        let mut term = terminal();
+        let mut parser: Processor = Processor::default();
+        parser.advance(&mut term, b"\r\nextra row\r\nanother row");
+        for ty in [SelectionType::Simple, SelectionType::Semantic, SelectionType::Block, SelectionType::Lines] {
+            term.scroll_display(alacritty_terminal::grid::Scroll::Top);
+            select(&mut term, ty, point(2, 1), point(2, 3), Side::Left);
+            assert!(scroll_selection(&mut term, -1, point(4, 3), Side::Right));
+            let range = term.selection.as_ref().unwrap().to_range(&term).unwrap();
+            let offset = term.grid().display_offset() as i32;
+            assert_eq!(range.end.line.0 + offset, 4);
+        }
+    }
+
     #[test]
     fn paste_line_endings_match_the_terminal_mode() {
         assert_eq!(paste_bytes("a\r\nb\rc\n", false), b"a\rb\rc\r");

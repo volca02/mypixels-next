@@ -577,14 +577,16 @@ impl<T> Term<T> {
 
         match self.selection.as_ref() {
             Some(Selection { ty: SelectionType::Block, .. }) => {
-                for line in (start.line.0..end.line.0).map(Line::from) {
-                    res += self
-                        .line_to_string(line, start.column..end.column, start.column.0 != 0)
-                        .trim_end();
-                    res += "\n";
+                for line in (start.line.0..=end.line.0).map(Line::from) {
+                    if line != start.line {
+                        res.push('\n');
+                    }
+                    // Keep blank cells and expand tabs so every copied row
+                    // preserves the rectangle's physical width.
+                    res += &self.line_to_string(
+                        line, start.column..end.column, line == end.line || start.column.0 != 0, true,
+                    );
                 }
-
-                res += self.line_to_string(end.line, start.column..end.column, true).trim_end();
             },
             Some(Selection { ty: SelectionType::Lines, .. }) => {
                 res = self.bounds_to_string(start, end) + "\n";
@@ -605,7 +607,7 @@ impl<T> Term<T> {
             let start_col = if line == start.line { start.column } else { Column(0) };
             let end_col = if line == end.line { end.column } else { self.last_column() };
 
-            res += &self.line_to_string(line, start_col..end_col, line == end.line);
+            res += &self.line_to_string(line, start_col..end_col, line == end.line, false);
         }
 
         res.strip_suffix('\n').map(str::to_owned).unwrap_or(res)
@@ -617,11 +619,13 @@ impl<T> Term<T> {
         line: Line,
         mut cols: Range<Column>,
         include_wrapped_wide: bool,
+        block: bool,
     ) -> String {
         let mut text = String::new();
 
         let grid_line = &self.grid[line];
-        let line_length = cmp::min(grid_line.line_length(), cols.end + 1);
+        let line_length = if block { cols.end + 1 }
+            else { cmp::min(grid_line.line_length(), cols.end + 1) };
 
         // Include wide char when trailing spacer is selected.
         if grid_line[cols.start].flags.contains(Flags::WIDE_CHAR_SPACER) {
@@ -641,13 +645,13 @@ impl<T> Term<T> {
                 }
             }
 
-            if cell.c == '\t' {
+            if cell.c == '\t' && !block {
                 tab_mode = true;
             }
 
             if !cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
                 // Push cells primary character.
-                text.push(cell.c);
+                text.push(if block && cell.c == '\t' { ' ' } else { cell.c });
 
                 // Push zero-width characters.
                 for c in cell.zerowidth().into_iter().flatten() {
@@ -656,7 +660,7 @@ impl<T> Term<T> {
             }
         }
 
-        if cols.end >= self.columns() - 1
+        if !block && cols.end >= self.columns() - 1
             && (line_length.0 == 0
                 || !self.grid[line][line_length - 1].flags.contains(Flags::WRAPLINE))
         {

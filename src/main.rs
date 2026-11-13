@@ -2211,23 +2211,22 @@ impl App {
                 if self.wins[self.cur].autoscroll_next.map_or(true, |t| Instant::now() >= t) {
                     self.wins[self.cur].autoscroll_next = Some(Instant::now() + std::time::Duration::from_millis(50));
                     let tab = &self.wins[self.cur].tabs[self.wins[self.cur].active];
-                    tab.scroll(alacritty_terminal::grid::Scroll::Delta(d * lines));
-                    // Same buffer-line transform as `cell_at`, applied to
-                    // the edge row of the post-scroll view.
+                    // Autoscroll also runs over the last two visible rows. Keep
+                    // the endpoint under the pointer, even when scrolling is a
+                    // no-op at the bottom; forcing it to the edge selects an
+                    // extra row. Only clamp when the pointer leaves the grid.
                     let col = ((px / self.cell_w).floor() as usize).min(self.wins[self.cur].cols.saturating_sub(1));
-                    // The edge row is the moving end of the selection. The
-                    // pointer's half-cell side would clip it at the cell
-                    // midline (and col 0, Left, wraps to the previous line
-                    // and drops the whole row), so face the side toward the
-                    // drag and select through the cell under the pointer.
-                    let side = if d > 0 { Side::Left } else { Side::Right };
-                    let vis_row = if d > 0 { 0 } else { self.wins[self.cur].rows as i32 - 1 };
-                    let off = tab.term.lock().grid().display_offset() as i32;
-                    tab.update_selection(
-                        Point { line: Line(vis_row - off), column: Column(col) },
-                        side,
-                    );
-                    window.request_redraw();
+                    let vis_row = (((py - strip_h) / self.cell_h).floor() as i32)
+                        .clamp(0, self.wins[self.cur].rows as i32 - 1);
+                    let within = px / self.cell_w - (px / self.cell_w).floor();
+                    let side = if py < strip_h { Side::Left }
+                        else if py >= bottom || within >= 0.5 { Side::Right }
+                        else { Side::Left };
+                    if tab.scroll_selection(
+                        d * lines, Point::new(Line(vis_row), Column(col)), side,
+                    ) {
+                        window.request_redraw();
+                    }
                 }
             } else {
                 self.wins[self.cur].autoscroll_next = None;
@@ -6700,25 +6699,13 @@ impl ApplicationHandler for App {
                         if let Some(tab) = self.wins[self.cur].tabs.get_mut(cur_active) { tab.clear_selection(); }
                         self.add_tab();
                         window.request_redraw();
-                    } else if button == MouseButton::Left
+                    } else if self.modifiers.control_key() && !self.modifiers.shift_key()
                         && self.url_at(at.0, at.1).is_some()
-                        && (self.modifiers.control_key() || self.modifiers.shift_key())
                     {
-                        // A modifier+click on a link belongs to the link,
-                        // not to the grid: Ctrl opens it, Shift copies it,
-                        // and neither starts a selection. That last part is
-                        // not politeness - selection autosends to the
-                        // clipboard, so a "copy the link" click that also
-                        // word-selected would have its own copy overwritten
-                        // by the word's text one moment later.
+                        // Ctrl+click opens links. Shift gestures belong to text
+                        // selection; a plain Shift+click copies on release.
                         let url = self.url_at(at.0, at.1).unwrap();
-                        if self.modifiers.control_key() {
-                            Self::open_url(&url);
-                        } else if let Some(cb) = self.clipboard.as_ref() {
-                            if let Err(e) = cb.set(clipboard::Kind::Clipboard, url) {
-                                log::warn!("copy url: {e}");
-                            }
-                        }
+                        Self::open_url(&url);
                     } else if let Some((pt, side)) = self.cell_at(at.0, at.1) {
                         // Alt+drag is a rectangular selection gesture. It must
                         // not open the Alt-held switcher halfway through a drag.
@@ -6730,16 +6717,10 @@ impl ApplicationHandler for App {
                         // whole rows: what VTE does, and why the clicks have to be
                         // counted by hand.
                         let count = self.count_click(0, at);
-                        // Shift+drag is the rectangular (column) selection.
-                        // Shift already bypasses the terminal's mouse
-                        // reporting, so the gesture is the app's; Alt would
-                        // race the Alt-held tab switcher for the same drag.
-                        let ty = match count {
-                            _ if self.modifiers.alt_key() || self.modifiers.shift_key() => SelectionType::Block,
-                            3 => SelectionType::Lines,
-                            2 => SelectionType::Semantic,
-                            _ => SelectionType::Simple,
-                        };
+                        // Shift bypasses terminal mouse reporting without changing
+                        // linear/word selection. Ctrl+Shift requests a block;
+                        // retain the existing Alt gesture as well.
+                        let ty = selection_type(self.modifiers, count);
                         let cur_active = self.wins[self.cur].active;
                         if let Some(tab) = self.wins[self.cur].tabs.get_mut(cur_active) {
                             tab.begin_selection(pt, side, ty);
@@ -6843,6 +6824,15 @@ impl ApplicationHandler for App {
                     self.wins[self.cur].mouse_last = None;
                 }
                 if button == MouseButton::Left && self.wins[self.cur].drag.take().is_some() {
+                    let empty_click = self.wins[self.cur].tabs.get(self.wins[self.cur].active)
+                        .is_some_and(|tab| tab.term.lock().selection.as_ref()
+                            .is_some_and(|sel| sel.ty == SelectionType::Simple && sel.is_empty()));
+                    if empty_click && self.modifiers.shift_key() && !self.modifiers.control_key() {
+                        let (px, py) = self.wins[self.cur].pointer;
+                        if let Some(url) = self.url_at(px, py) {
+                            self.copy_text(clipboard::Kind::Clipboard, url);
+                        }
+                    }
                     self.publish_primary();
                     window.request_redraw();
                 }
@@ -7272,6 +7262,15 @@ Use --new-tab to add a tab instead. If no session answers, start a new instance.
     log::info!("exited");
 }
 
+fn selection_type(modifiers: ModifiersState, count: u32) -> SelectionType {
+    match count {
+        _ if modifiers.alt_key() || (modifiers.control_key() && modifiers.shift_key()) => SelectionType::Block,
+        3 => SelectionType::Lines,
+        2 => SelectionType::Semantic,
+        _ => SelectionType::Simple,
+    }
+}
+
 #[cfg(test)]
 mod graveyard_tests {
     use super::*;
@@ -7424,6 +7423,19 @@ mod mouse_report_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn selection_gestures_preserve_click_units_with_shift() {
+        for modifiers in [ModifiersState::empty(), ModifiersState::SHIFT] {
+            assert_eq!(selection_type(modifiers, 1), SelectionType::Simple);
+            assert_eq!(selection_type(modifiers, 2), SelectionType::Semantic);
+            assert_eq!(selection_type(modifiers, 3), SelectionType::Lines);
+        }
+        for count in 1..=3 {
+            assert_eq!(selection_type(ModifiersState::CONTROL | ModifiersState::SHIFT, count), SelectionType::Block);
+            assert_eq!(selection_type(ModifiersState::ALT, count), SelectionType::Block);
+        }
+    }
 
     #[test]
     fn new_tab_placement_handles_empty_windows() {
