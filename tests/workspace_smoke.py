@@ -152,7 +152,7 @@ try:
     (work / 'trigger-3').touch()
     wait(lambda: (work / 'input-3').read_bytes().endswith(b'R'), 'hidden DSR reply missing')
     assert b'\x1b[' in (work / 'input-3').read_bytes()
-    # Switching while the Alt-held tab switcher is open must dismiss it.
+    # Switching while Alt is held keeps the tab switcher open.
     send('switcher')
     send('alt+w')
     expect(1, [3, 4], 1)
@@ -243,10 +243,30 @@ try:
     # another workspace is part of the same Alt-held look-around, so the switcher
     # stays up while Alt is down, and its tiles are the ones that belong there.
     ws0_tabs = spy()[1]
+    # Workspace cycling works without the overlay, including both wrap edges.
+    send('alt+pgup')
+    expect(9, [12] + list(range(18, 27)), 9)
+    send('alt+pgdn')
+    expect(0, ws0_tabs, 1)
     send('alt_hold')
     time.sleep(.2)
     send('switcher')
     assert switcher_visible(), 'the switcher did not open for the workspace phase'
+    send('alt+pgup')
+    expect(9, [12] + list(range(18, 27)), 9)
+    assert switcher_visible(), 'cycling backwards closed the switcher'
+    send('alt+pgdn')
+    expect(0, ws0_tabs, 1)
+    assert switcher_visible(), 'cycling forwards closed the switcher'
+    send('alt+pgdn')
+    expect(1, list(range(27, 32)), 4)
+    send('alt+1')
+    send('alt+esc')
+    expect(1, list(range(27, 32)), 4)
+    assert not switcher_visible(), 'Escape did not restore the destination workspace tab'
+    send('switcher')
+    send('alt+pgup')
+    expect(0, ws0_tabs, 1)
     send('alt+shift+3')
     wait(lambda: spy()[0] == 2, 'Alt+Shift+3 did not switch workspace with the switcher open')
     assert switcher_visible(), 'a workspace switch closed the switcher while Alt was held'
@@ -327,6 +347,52 @@ try:
     # FIFO key injection in this particular state (two windows, 37 tabs) the
     # injected Enter stops reaching the panel, and an assertion that depends on
     # that delivery would fail without meaning the feature broke.
+    # Cycling also remains global with the workspace panel open.
+    send('alt+shift+k')
+    wait(lambda: panel_state()[0] == 'Workspaces', 'workspace panel did not reopen')
+    send('alt+pgdn')
+    wait(lambda: spy()[0] == 1 and panel_state() == ('Workspaces', '1'),
+         'cycling did not update the open workspace panel')
+    send('alt+pgup')
+    wait(lambda: spy()[0] == 0 and panel_state() == ('Workspaces', '0'),
+         'cycling backwards did not update the workspace panel')
+    send('escape')
+    wait(lambda: panel_state()[0] == 'Closed', 'workspace panel did not close')
+    # Both cycle actions respect the workspace feature toggle.
+    config.write_text(config.read_text().replace('workspaces_enabled: true', 'workspaces_enabled: false'))
+    send('ctrl+shift+r')
+    before = spy()
+    send('alt+pgup')
+    assert spy() == before, 'cycling switched a disabled workspace'
+    send('alt+pgdn')
+    assert spy() == before, 'cycling switched a disabled workspace'
+    # Rebinding the actions must work inside the switcher too.
+    config.write_text(config.read_text()
+                      .replace('workspaces_enabled: false', 'workspaces_enabled: true')
+                      .replace('tab_overview_on_alt: false', 'tab_overview_on_alt: true')
+                      + 'bindings:\n  prev_workspace: MOD1+SHIFT+Page_Up\n  next_workspace: MOD1+SHIFT+Page_Down\n')
+    send('ctrl+shift+r')
+    send('alt_hold')
+    send('switcher')
+    assert switcher_visible()
+    send('alt+shift+pgdn')
+    expect(1, list(range(27, 32)), 4)
+    assert switcher_visible(), 'a rebound workspace shortcut closed the switcher'
+    send('alt+shift+pgup')
+    assert spy() == before, 'rebound previous workspace did not restore the tab set'
+    assert switcher_visible()
+    send('alt_up')
+    # Visiting an empty slot through cycling creates its first live terminal.
+    target_window = 2
+    send('alt+shift+pgdn')
+    before = spy()
+    assert before[0] == 1
+    next_id = len(list(work.glob('input-*')))
+    send('alt+shift+pgdn')
+    wait(lambda: (work / f'input-{next_id}').exists(), 'cycling did not create an empty workspace terminal')
+    expect(2, [next_id], 0)
+    send('alt+shift+pgup')
+    assert spy() == before, 'cycling lost the previous workspace selection'
     print('Workspace, tab preference, and numbered tab checks passed. Artifacts:', work)
 finally:
     app.terminate()

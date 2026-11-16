@@ -271,6 +271,8 @@ impl Default for Config {
         bind("next_tab", &["MOD1+Right", "MOD1+SHIFT+b"]);
         bind("prev_tab_row", &["MOD1+Up"]);
         bind("next_tab_row", &["MOD1+Down"]);
+        bind("prev_workspace", &["MOD1+Page_Up"]);
+        bind("next_workspace", &["MOD1+Page_Down"]);
         bind("first_tab", &["MOD1+Home"]);
         bind("last_tab", &["MOD1+End"]);
         bind("close_tab", &["CONTROL+ALT+x", "CONTROL+ALT+q"]);

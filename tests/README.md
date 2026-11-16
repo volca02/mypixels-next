@@ -132,6 +132,9 @@ independent tab sets, remembered selection, background output and protocol repli
 hidden child exits, closing the last tab of a workspace, and independent windows.
 It also checks creating missing numbered tabs (including tab 10 and custom
 Ctrl+5 bindings), existing tab order, repeated shortcuts, and switcher behavior.
+Workspace cycling checks cover Alt+PgUp/PgDown, wrapping, custom bindings,
+disabled workspaces, empty slots, panel updates, and keeping the switcher open
+with the destination workspace's tab selection.
 Tab preference checks cover startup with the switcher disabled, enabling the
 Alt-hold timer live, disabling an open switcher, and numbered shortcuts in
 number-only mode with the switcher disabled.

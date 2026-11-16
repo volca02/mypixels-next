@@ -2897,6 +2897,10 @@ const KEY_GROUPS: &[(&str, &[(&str, &str)])] = &[
         ("send_tab_to_window", "Move tab to another window"),
         ("move_tab_to_workspace", "Move tab to a workspace"),
     ]),
+    ("Workspaces", &[
+        ("show_workspaces", "Workspaces panel"),
+        ("prev_workspace", "Previous workspace"), ("next_workspace", "Next workspace"),
+    ]),
     ("Copy and paste", &[
         ("copy", "Copy"), ("paste", "Paste"), ("paste_primary", "Paste the selection"),
         ("select_all", "Select all"), ("copy_last_output", "Copy last command output"),
@@ -2949,11 +2953,9 @@ fn key_groups(cfg: &crate::config::Config) -> Vec<(&'static str, Vec<(String, St
         .collect()));
     // Listed whether or not the feature is on: the chords are real either way,
     // and hiding them here would drop ten rows into "Other".
-    let mut ws_rows: Vec<(String, String)> =
-        vec![("show_workspaces".to_string(), "Workspaces panel".to_string())];
+    let ws_rows = &mut groups.iter_mut().find(|(name, _)| *name == "Workspaces").unwrap().1;
     ws_rows.extend((0..crate::config::WORKSPACES)
         .map(|i| (format!("goto_workspace_{i}"), format!("Go to workspace {}", i + 1))));
-    groups.insert(3, ("Workspaces", ws_rows));
     let named: std::collections::HashSet<&str> = groups.iter()
         .flat_map(|(_, rows)| rows.iter().map(|a| a.0.as_str())).collect();
     let other: Vec<(String, String)> = cfg.bindings.iter()

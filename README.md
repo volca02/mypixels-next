@@ -151,7 +151,10 @@ Features
 * Workspaces - opt-in (`workspaces_enabled: true`; Settings → Navigation →
   Workspaces). Off by default, in which case the workspace bindings and the
   tab-bar button are inert and tabs keep their normal color. When on,
-  Alt+Shift+1…0 select ten independent tab sets in each window; the letter
+  Alt+Shift+1…0 select ten independent tab sets in each window. Alt+PgUp/PgDown
+  cycle to the previous/next workspace, wrapping at the ends. Hold Alt to keep
+  the tab switcher open while browsing workspaces. These bindings are configurable
+  as `prev_workspace` and `next_workspace` in Settings → Keys. The letter
   chords Alt+Q/W/E/R/T/Y/U/I/O/P are the opt-in alternative
   (`workspace_letter_keys: true`), left off because Alt+letter belongs to
   shells and TUIs. Alt+1…9/0 select tabs within the current workspace, creating

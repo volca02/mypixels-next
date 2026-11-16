@@ -4512,7 +4512,8 @@ impl App {
     /// has the keyboard: they open, close or steer the panels themselves, and
     /// the workspace chords have to keep switching with the panel open.
     fn is_panel_action(action: &str) -> bool {
-        matches!(action, "show_config" | "show_history" | "graveyard" | "show_workspaces")
+        matches!(action, "show_config" | "show_history" | "graveyard" | "show_workspaces"
+            | "prev_workspace" | "next_workspace")
             || action.starts_with("goto_workspace_")
     }
 
@@ -4805,6 +4806,11 @@ impl App {
                 if let Ok(target) = a["goto_workspace_".len()..].parse::<usize>() {
                     self.switch_workspace(target);
                 }
+            }
+            "prev_workspace" | "next_workspace" => {
+                let step = if action == "prev_workspace" { WORKSPACES - 1 } else { 1 };
+                let target = (self.wins[self.cur].workspace + step) % WORKSPACES;
+                self.switch_workspace(target);
             }
             // The picker's pick, drained after the frame that showed it.
             a if a.starts_with("move_to_workspace_") => {
