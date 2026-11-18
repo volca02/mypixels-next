@@ -8,7 +8,10 @@ windowless daemon: no startup windows or children, duplicate-owner rejection,
 remote launch, last-window closure, restoration with the original child PIDs,
 tab order and workspace selections, protocol replies without windows, child
 exit cleanup, whole-window graveyard eviction, stable routing from restored
-shells, and the graveyard's Restore/Kill window buttons. It uses a private session
+shells, and the graveyard's window carousels and Restore/Kill actions. It checks
+live preview updates, browsing without reopening, restoration on the browsed
+tab, and preservation of retained PTY dimensions when the viewer is resized.
+It uses a private session
 bus, display, MCP socket, configuration, and terminal children; it never starts
 or stops the desktop's systemd service.
 

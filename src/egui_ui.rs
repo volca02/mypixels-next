@@ -159,9 +159,10 @@ pub struct UiState {
     /// Rows are the app's snapshot, newest-first. Output is a one-shot
     /// (selected index, action) applied after the frame.
     pub grave_rows: Vec<GraveRow>,
-    /// Stable window id, active title, and total live tab count, newest first.
-    pub grave_windows: Vec<(usize, String, usize)>,
-    pub grave_window_out: Option<(usize, bool)>,
+    /// Retained windows and their tab carousels, newest first.
+    pub grave_windows: Vec<GraveWindowRow>,
+    pub grave_visible_tabs: Vec<usize>,
+    pub grave_window_out: Option<(usize, GraveWindowAction)>,
     pub grave_sel: Option<usize>,
     pub grave_out: Option<(usize, String)>,
 }
@@ -203,7 +204,7 @@ pub struct WsRow {
     pub title: String,
     pub genre: String,
     pub icon: crate::config::WorkspaceIcon,
-    pub tabs: Vec<WsTab>,
+    pub tabs: Vec<CarouselTab>,
     /// The workspace this window is looking at right now.
     pub current: bool,
     /// The chord that jumps here, read from the live config so the panel can
@@ -212,12 +213,25 @@ pub struct WsRow {
 }
 
 #[derive(Clone)]
-pub struct WsTab {
+pub struct CarouselTab {
     pub id: usize,
     pub title: String,
     pub selected: bool,
     pub preview: Option<(egui::TextureId, (u32, u32))>,
 }
+
+/// A retained window and all of its live terminals, in workspace order.
+#[derive(Clone)]
+pub struct GraveWindowRow {
+    pub id: usize,
+    pub title: String,
+    pub workspaces: usize,
+    pub buried: String,
+    pub tabs: Vec<CarouselTab>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GraveWindowAction { Restore(Option<usize>), Kill }
 
 /// One buried tab, precomputed by the app while the graveyard panel is open.
 #[derive(Clone)]
@@ -957,6 +971,7 @@ pub fn graveyard_panel(
     }
     st.grave_out = None;
     st.grave_window_out = None;
+    st.grave_visible_tabs.clear();
     if !st.menu_open && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
         release_focus(ui.ctx());
         st.close_panel(RightPanel::Graveyard);
@@ -1038,13 +1053,10 @@ pub fn graveyard_panel(
                 if icon_button(ui, close_rect, Icon::Dismiss, "Close graveyard", &colors).clicked() {
                     st.close_panel(RightPanel::Graveyard);
                 }
-                let hint = egui::Rect::from_min_size(
-                    egui::pos2(ui.cursor().left(), ui.cursor().top()),
-                    egui::vec2(ui.available_width(), 16.0),
-                );
-                text(ui, hint, "\u{2191}\u{2193} select \u{b7} Enter raise \u{b7} Del kill \u{b7} Esc close",
-                    muted, 11.0, false);
-                ui.add_space(14.0);
+                let (hint, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 16.0), egui::Sense::hover());
+                text(ui, hint, if count == 0 { "Browse previews · Restore to reopen · Esc close" }
+                    else { "↑↓ select tab · Enter raise · Del kill · Esc close" }, muted, 11.0, false);
+                ui.add_space(12.0);
                 // Keep an explicit selection on a visible row after eviction.
                 if let Some(sel) = st.grave_sel.filter(|s| *s >= count) {
                     st.grave_sel = Some(sel.min(count.saturating_sub(1)));
@@ -1063,29 +1075,26 @@ pub fn graveyard_panel(
                     .auto_shrink([false, false])
                     .show(&mut body_ui, |ui| {
                         if !st.grave_windows.is_empty() {
-                            ui.label(egui::RichText::new("Closed windows").color(fg));
-                            for (id, title, tabs) in &st.grave_windows {
-                                ui.add_space(6.0);
-                                ui.label(format!("{title} ({tabs} tabs)"));
-                                ui.horizontal(|ui| {
-                                    if ui.button("Restore window").clicked() {
-                                        st.grave_window_out = Some((*id, true));
-                                    }
-                                    if ui.button("Kill window").clicked() {
-                                        st.grave_window_out = Some((*id, false));
-                                    }
-                                });
+                            ui.label(egui::RichText::new("Closed windows").monospace().size(12.0).color(muted));
+                            ui.add_space(8.0);
+                            for row in &st.grave_windows {
+                                if let Some(action) = grave_window_card(ui, row, &colors, &mut st.grave_visible_tabs) {
+                                    st.grave_window_out = Some((row.id, action));
+                                }
+                                ui.add_space(10.0);
                             }
-                            ui.add_space(12.0);
-                            ui.separator();
                         }
                         if count == 0 {
-                            ui.add_space(14.0);
-                            ui.label(
-                                egui::RichText::new("No buried tabs.\nClosed tabs keep running here.")
-                                    .color(muted),
-                            );
+                            if st.grave_windows.is_empty() {
+                                ui.add_space(14.0);
+                                ui.label(egui::RichText::new("No buried tabs or windows.\nClosed terminals keep running here.").color(muted));
+                            }
                             return;
+                        }
+                        if !st.grave_windows.is_empty() {
+                            ui.add_space(6.0);
+                            ui.label(egui::RichText::new("Closed tabs").monospace().size(12.0).color(muted));
+                            ui.add_space(8.0);
                         }
                         // Newest first: the tab buried last is the one a
                         // mistaken Ctrl+Shift+x is most likely to mourn.
@@ -1171,6 +1180,67 @@ pub fn graveyard_panel(
 
             });
         });
+    ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
+}
+
+/// A window uses the same outlined surface and tab carousel as workspaces.
+/// Browsing is local; only Restore changes which live window is open.
+fn grave_window_card(ui: &mut egui::Ui, row: &GraveWindowRow, colors: &TermStyle,
+    visible_tabs: &mut Vec<usize>) -> Option<GraveWindowAction> {
+    let selection_id = egui::Id::unique("grave_window_selection").with(row.id);
+    let initial = row.tabs.iter().find(|tab| tab.selected).or(row.tabs.first()).map(|tab| tab.id);
+    let selected = ui.ctx().data_mut(|data| data.get_temp::<usize>(selection_id))
+        .filter(|id| row.tabs.iter().any(|tab| tab.id == *id)).or(initial);
+    let mut tabs = row.tabs.clone();
+    for tab in &mut tabs { tab.selected = Some(tab.id) == selected; }
+    let mut action = None;
+    egui::Frame::new().fill(colors.bg.lerp_to_gamma(colors.accent, 0.035))
+        .stroke(egui::Stroke::new(1.0, colors.border)).corner_radius(11.0).inner_margin(12.0)
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
+            ui.horizontal(|ui| {
+                let (mark, _) = ui.allocate_exact_size(egui::vec2(24.0, 28.0), egui::Sense::hover());
+                draw_icon(ui.painter(), Icon::Archive, mark.center(), colors.accent);
+                ui.add(egui::Label::new(egui::RichText::new(&row.title).monospace().size(14.0).strong().color(colors.fg))
+                    .truncate()).on_hover_text(&row.title);
+            });
+            let summary = format!("{} tab{} · {} workspace{} · closed {}", row.tabs.len(),
+                if row.tabs.len() == 1 { "" } else { "s" }, row.workspaces,
+                if row.workspaces == 1 { "" } else { "s" }, row.buried);
+            ui.add(egui::Label::new(egui::RichText::new(summary).monospace().size(11.0).color(colors.muted)).truncate());
+            ui.add_space(4.0);
+            let carousel = TabCarouselLayout::new(ui.available_width(), tabs.len(), true, 40.0);
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), carousel.height), egui::Sense::hover());
+            let prefix = format!("graveyard/window/{}", row.id);
+            if let Some(tab) = tab_carousel(ui, rect, TabCarousel {
+                id: selection_id.with("carousel"), control_prefix: &prefix, tabs: &tabs,
+                expanded: true, color: colors.accent,
+            }, colors, visible_tabs) {
+                ui.ctx().data_mut(|data| data.insert_temp(selection_id, tab));
+                ui.ctx().request_repaint();
+            }
+            ui.add_space(4.0);
+            ui.separator();
+            let gap = ui.spacing().item_spacing.x;
+            let width = (ui.available_width() - gap) * 0.5;
+            ui.horizontal(|ui| {
+                for (name, label, glyph, enabled, result) in [
+                    ("restore", "Restore", Icon::Rerun, !tabs.is_empty(), GraveWindowAction::Restore(selected)),
+                    ("kill", "Kill window", Icon::Close, true, GraveWindowAction::Kill),
+                ] {
+                    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 34.0), egui::Sense::hover());
+                    crate::ui_style::record_control(ui, format!("{prefix}/{name}"), rect);
+                    let mut style = *colors;
+                    if name == "kill" { style.accent = colors.err; style.fg = colors.muted; }
+                    if action_row(ui, rect, ui.scope_id().with((row.id, name)), label, "", Some(glyph), enabled, &style).clicked() {
+                        action = Some(result);
+                        release_focus(ui.ctx());
+                    }
+                }
+            });
+        });
+    action
 }
 
 fn graveyard_details(ui: &mut egui::Ui, row: &GraveRow, colors: &TermStyle) -> Option<&'static str> {
@@ -1349,7 +1419,7 @@ pub fn workspaces_panel(
                             let selected = st.ws_sel == Some(index);
                             let color = colors_ws.get(index).copied().unwrap_or(accent);
                             let expanded = selected && row.count > 0 && st.ws_collapsed != Some(index);
-                            let carousel = WorkspaceCarouselLayout::new(ui.available_width() - 24.0, row.tabs.len(), true, 40.0);
+                            let carousel = TabCarouselLayout::new(ui.available_width() - 24.0, row.tabs.len(), true, 40.0);
                             let height = 68.0 + if expanded { carousel.height + 8.0 } else { 0.0 };
                             let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), height), egui::Sense::hover());
                             let heading = rect.with_max_y(rect.top() + 66.0);
@@ -1427,21 +1497,21 @@ pub fn workspaces_panel(
 }
 
 #[derive(Clone, Default)]
-struct WorkspaceStripState {
+struct TabCarouselState {
     focus: Option<(usize, usize)>,
     count: usize,
     width: f32,
     last_frame: Option<u64>,
 }
 
-struct WorkspaceCarouselLayout {
+struct TabCarouselLayout {
     tile: egui::Vec2,
     gap: f32,
     gutter: f32,
     height: f32,
 }
 
-impl WorkspaceCarouselLayout {
+impl TabCarouselLayout {
     fn new(width: f32, count: usize, expanded: bool, compact_height: f32) -> Self {
         let gap = if expanded { 8.0 } else { 6.0 };
         let desired_tiles = if expanded { 3.0 } else { 2.0 };
@@ -1463,27 +1533,41 @@ impl WorkspaceCarouselLayout {
 /// the user browse freely with the wheel or trackpad. Focus changes only move
 /// the viewport when the newly focused card would otherwise be clipped.
 fn workspace_tab_strip(
-    ui: &mut egui::Ui,
-    rect: egui::Rect,
-    row: &WsRow,
+    ui: &mut egui::Ui, rect: egui::Rect, row: &WsRow, expanded: bool,
+    color: egui::Color32, colors: &TermStyle, visible_tabs: &mut Vec<usize>,
+) -> Option<usize> {
+    tab_carousel(ui, rect, TabCarousel {
+        id: egui::Id::unique("workspace_tab_strip").with((row.index, expanded)),
+        control_prefix: &format!("workspace/{}", row.index + 1), tabs: &row.tabs, expanded, color,
+    }, colors, visible_tabs)
+}
+
+struct TabCarousel<'a> {
+    id: egui::Id,
+    control_prefix: &'a str,
+    tabs: &'a [CarouselTab],
     expanded: bool,
     color: egui::Color32,
-    colors: &TermStyle,
+}
+
+/// Shared carousel geometry, scrolling, focus reveal, thumbnails and controls.
+fn tab_carousel(
+    ui: &mut egui::Ui, rect: egui::Rect, carousel: TabCarousel<'_>, colors: &TermStyle,
     visible_tabs: &mut Vec<usize>,
 ) -> Option<usize> {
-    let layout = WorkspaceCarouselLayout::new(rect.width(), row.tabs.len(), expanded, rect.height());
+    let TabCarousel { id, control_prefix, tabs, expanded, color } = carousel;
+    let layout = TabCarouselLayout::new(rect.width(), tabs.len(), expanded, rect.height());
     let tile = layout.tile;
     let gap = layout.gap;
     let gutter = layout.gutter;
     let pitch = tile.x + gap;
-    let content_width = row.tabs.len() as f32 * pitch - gap;
+    let content_width = tabs.len() as f32 * pitch - gap;
     let overflow = gutter > 0.0;
     let viewport = rect.shrink2(egui::vec2(gutter, 0.0));
-    let id = egui::Id::unique("workspace_tab_strip").with((row.index, expanded));
-    let focus = row.tabs.iter().enumerate().find(|(_, tab)| tab.selected).map(|(index, tab)| (tab.id, index));
+    let focus = tabs.iter().enumerate().find(|(_, tab)| tab.selected).map(|(index, tab)| (tab.id, index));
     let frame = ui.ctx().cumulative_frame_nr();
-    let mut state = ui.ctx().data_mut(|data| data.get_temp::<WorkspaceStripState>(id).unwrap_or_default());
-    let reset = state.count != row.tabs.len() || state.width != viewport.width()
+    let mut state = ui.ctx().data_mut(|data| data.get_temp::<TabCarouselState>(id).unwrap_or_default());
+    let reset = state.count != tabs.len() || state.width != viewport.width()
         || state.last_frame.is_none_or(|last| frame > last + 1);
     let follow_focus = state.focus != focus && !reset;
     let offset = if reset {
@@ -1491,10 +1575,10 @@ fn workspace_tab_strip(
             .clamp(0.0, (content_width - viewport.width()).max(0.0)))
     } else { None };
     state.focus = focus;
-    state.count = row.tabs.len();
+    state.count = tabs.len();
     state.width = viewport.width();
     state.last_frame = Some(frame);
-    let mut child = ui.new_child(egui::UiBuilder::new().id_salt(("workspace_tabs", row.index, expanded)).max_rect(viewport));
+    let mut child = ui.new_child(egui::UiBuilder::new().id_salt(id).max_rect(viewport));
     child.set_clip_rect(ui.clip_rect().intersect(viewport));
     let mut scroll = egui::ScrollArea::horizontal().id_salt("previews")
         .animated(ui.ctx().global_style().animation_time > 0.0)
@@ -1505,7 +1589,7 @@ fn workspace_tab_strip(
         ui.spacing_mut().item_spacing.x = gap;
         ui.horizontal(|ui| {
             let mut pick = None;
-            for (number, tab) in row.tabs.iter().enumerate() {
+            for (number, tab) in tabs.iter().enumerate() {
                 let (tile_rect, response) = ui.allocate_exact_size(
                     egui::vec2(tile.x, tile.y + if expanded { 23.0 } else { 0.0 }), egui::Sense::click());
                 let well = tile_rect.with_max_y(tile_rect.top() + tile.y);
@@ -1515,7 +1599,7 @@ fn workspace_tab_strip(
                         egui::style::ScrollAnimation::duration(ui.ctx().global_style().animation_time));
                 }
                 if ui.is_rect_visible(well) { visible_tabs.push(tab.id); }
-                crate::ui_style::record_control(ui, format!("workspace/{}/tab/{}", row.index + 1, number + 1), well);
+                crate::ui_style::record_control(ui, format!("{control_prefix}/tab/{}", number + 1), well);
                 workspace_preview(ui, well, tab, colors);
                 if tab.selected || response.hovered() {
                     ui.painter().rect_stroke(well, 7.0, egui::Stroke::new(1.5, color), egui::StrokeKind::Inside);
@@ -1536,12 +1620,12 @@ fn workspace_tab_strip(
     if overflow {
         for (left, available, x) in [(true, offset > 0.5, rect.left() + gutter * 0.5),
             (false, offset < max_offset - 0.5, rect.right() - gutter * 0.5)] {
-            let Some(neighbor) = neighboring_workspace_tab(row, left).filter(|_| available) else { continue; };
+            let Some(neighbor) = neighboring_tab(tabs, left).filter(|_| available) else { continue; };
             let button = egui::Rect::from_center_size(egui::pos2(x, rect.top() + tile.y * 0.5), egui::vec2(gutter, tile.y.min(30.0)));
             let response = ui.interact(button, id.with(left), egui::Sense::click());
-            let label = format!("Focus {} tab in workspace {}", if left { "Previous" } else { "Next" }, row.index + 1);
+            let label = format!("{} tab", if left { "Previous" } else { "Next" });
             response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
-            crate::ui_style::record_control(ui, format!("workspace/{}/{}", row.index + 1, if left { "previous" } else { "next" }), button);
+            crate::ui_style::record_control(ui, format!("{control_prefix}/{}", if left { "previous" } else { "next" }), button);
             if response.hovered() { ui.painter().rect_filled(button, 5.0, colors.card); }
             draw_icon(ui.painter(), if left { Icon::ChevronLeft } else { Icon::ChevronRight }, button.center(),
                 if response.hovered() { color } else { colors.muted });
@@ -1556,12 +1640,16 @@ fn workspace_tab_strip(
 }
 
 fn neighboring_workspace_tab(row: &WsRow, left: bool) -> Option<usize> {
-    let current = row.tabs.iter().position(|tab| tab.selected)?;
-    let next = if left { current.checked_sub(1)? } else { current.checked_add(1)? };
-    row.tabs.get(next).map(|tab| tab.id)
+    neighboring_tab(&row.tabs, left)
 }
 
-fn workspace_preview(ui: &egui::Ui, rect: egui::Rect, tab: &WsTab, colors: &TermStyle) {
+fn neighboring_tab(tabs: &[CarouselTab], left: bool) -> Option<usize> {
+    let current = tabs.iter().position(|tab| tab.selected)?;
+    let next = if left { current.checked_sub(1)? } else { current.checked_add(1)? };
+    tabs.get(next).map(|tab| tab.id)
+}
+
+fn workspace_preview(ui: &egui::Ui, rect: egui::Rect, tab: &CarouselTab, colors: &TermStyle) {
     if tab.preview.is_some() {
         preview_image(ui, rect, tab.preview, colors);
     } else {
@@ -4299,7 +4387,7 @@ mod regression {
         st.ws_rows = (0..3).map(|index| WsRow {
             index, count: if index == 2 { 0 } else { 9 }, title: "terminal".into(),
             genre: ["Development", "Research", "Empty"][index].into(), icon: crate::config::WorkspaceIcon::Code,
-            tabs: if index == 2 { vec![] } else { (0..9).map(|i| WsTab {
+            tabs: if index == 2 { vec![] } else { (0..9).map(|i| CarouselTab {
                 id: index * 100 + i, title: format!("terminal {i}"), selected: i == 8,
                 preview: Some((tex.id(), (32, 20))),
             }).collect() }, current: index == 0, shortcut: format!("Alt+Shift+{}", index + 1),
@@ -4925,6 +5013,53 @@ mod input_regression {
     }
 
     #[test]
+    fn closed_window_carousel_browses_without_restoring_and_restores_selected_tab() {
+        for size in [egui::vec2(1500.0, 900.0), egui::vec2(560.0, 480.0)] {
+            let ctx = Context::default();
+            let texture = ctx.load_texture("retained terminal", egui::ColorImage::filled([32, 20], egui::Color32::GREEN),
+                egui::TextureOptions::LINEAR);
+            let mut st = UiState { right_panel: RightPanel::Graveyard,
+                grave_windows: vec![GraveWindowRow { id: 7, title: "build and services".into(), workspaces: 2, buried: "1m".into(),
+                    tabs: (0..9).map(|index| CarouselTab { id: 100 + index, title: format!("terminal {index}"),
+                        selected: index == 8, preview: Some((texture.id(), (32, 20))) }).collect() }],
+                ..Default::default() };
+            let mut time = 0.0;
+            let mut render = |events| {
+                time += 0.2;
+                let mut full = ctx.run_ui(egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)), time: Some(time), events, ..Default::default()
+                }, |ui| graveyard_panel(ui, &mut st, egui::Color32::GREEN, egui::Color32::RED, 24.0, &[]));
+                full.textures_delta.clear();
+                (full, st.grave_window_out)
+            };
+            render(vec![]); render(vec![]);
+            let (full, _) = render(vec![]);
+            assert!(!full.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(t)
+                if t.galley.text().contains("No buried"))), "window entries must not show an empty-graveyard message");
+            assert!(full.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Rect(r)
+                if r.fill_texture_id() == texture.id())), "window carousel thumbnails missing");
+            for label in ["Restore", "Kill window"] {
+                let (clip, text) = full.shapes.iter().find_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) if text.galley.text() == label => Some((shape.clip_rect, text)), _ => None,
+                }).expect("window action missing");
+                assert!(!text.galley.elided && clip.contains_rect(egui::Rect::from_min_size(text.pos, text.galley.size())),
+                    "window action clipped at {size:?}: {label}");
+            }
+            let click = |pos, pressed| vec![egui::Event::PointerMoved(pos), egui::Event::PointerButton {
+                pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE }];
+            let previous = crate::ui_style::control_rect(&ctx, "graveyard/window/7/previous").expect("carousel arrow missing").center();
+            render(click(previous, true));
+            let (_, action) = render(click(previous, false));
+            assert_eq!(action, None, "browsing must not reopen or kill the window");
+            render(vec![]);
+            let restore = crate::ui_style::control_rect(&ctx, "graveyard/window/7/restore").unwrap().center();
+            render(click(restore, true));
+            let (_, action) = render(click(restore, false));
+            assert_eq!(action, Some((7, GraveWindowAction::Restore(Some(107)))));
+        }
+    }
+
+    #[test]
     fn graveyard_details_actions_are_visible_and_clickable() {
         for size in [egui::vec2(1500.0, 900.0), egui::vec2(560.0, 480.0), egui::vec2(480.0, 320.0)] {
             let ctx = Context::default();
@@ -5011,7 +5146,7 @@ mod workspace_panel_tests {
                 title: format!("Terminal {index}"),
                 genre: if index == 1 { "Research".into() } else { String::new() },
                 icon: crate::config::WorkspaceIcon::Layers,
-                tabs: if index < 3 { (0..2).map(|tab| WsTab {
+                tabs: if index < 3 { (0..2).map(|tab| CarouselTab {
                     id: index * 10 + tab, title: format!("Terminal {index}-{tab}"),
                     selected: tab == 0, preview: None,
                 }).collect() } else { Vec::new() },
@@ -5130,7 +5265,7 @@ mod workspace_panel_tests {
         let size = egui::vec2(1200.0, 800.0);
         for workspace in 0..2 {
             let row = &mut st.ws_rows[workspace];
-            row.tabs = (0..9).map(|index| WsTab {
+            row.tabs = (0..9).map(|index| CarouselTab {
                 id: 100 * (workspace + 1) + index, title: format!("Terminal {workspace}-{index}"),
                 selected: index == 8, preview: None,
             }).collect();

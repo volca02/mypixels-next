@@ -49,8 +49,16 @@ reserves at least two rows and two columns when the window can fit them,
 reducing preferred preview size to fit beside the workspace rail. Narrow
 windows use one column and vertical scrolling. Texture arrival does not change
 the layout. Keyboard navigation consumes the published column count.
-`WorkspaceCarouselLayout` similarly owns tile sizes and overflow gutters;
+`TabCarouselLayout` similarly owns tile sizes and overflow gutters;
 callers provide a rectangle and compact/expanded presentation.
+
+Closed windows in the graveyard use outlined cards and the same tab carousel
+as workspace cards. Their title, tab/workspace counts, closure age and actions
+lay out naturally. Browsing a carousel stays local; Restore reopens the whole
+window on the browsed terminal, and Kill ends that window's retained terminals.
+Visible previews refresh through the shared parked-terminal pipeline, using
+two temporary targets at most five times a second. Retained terminal grids are
+fitted for rendering without resizing their PTYs.
 
 Area-based sidebars derive their inner size from the frame's actual margins.
 egui Window size constraints already describe the outer frame. Context menus

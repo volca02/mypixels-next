@@ -58,8 +58,10 @@ so `mypixels --new-tab` from one still opens in the restored window.
 Restore the most recently closed window with `mypixels --restore-window` from
 any launcher, or **Ctrl+Alt+Shift+Z** from another Mypixels window. The application
 menu also offers **Restore last closed window**. The graveyard panel
-(**Ctrl+Shift+G**) lists closed windows with **Restore window** and **Kill window**
-buttons, alongside individually closed tabs. **Ctrl+Shift+Z** raises the last
+(**Ctrl+Shift+G**) shows closed windows as cards with live tab carousels and
+tab/workspace counts, alongside individually closed tabs. Browse the previews,
+then **Restore** the window on that tab, or **Kill window** to end its terminals.
+**Ctrl+Shift+Z** raises the last
 closed tab into the current window.
 
 `graveyard_limit` (default 5) bounds closed tabs and closed windows separately.

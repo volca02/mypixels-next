@@ -12,6 +12,9 @@ import subprocess as sp
 import tempfile
 import time
 
+from ui_geometry import control_center, control_rect
+from PIL import Image, ImageChops
+
 from x11_helpers import request_close
 
 
@@ -44,13 +47,19 @@ while True:
     except FileExistsError:
         index += 1
 tty.setraw(0)
+(work / f'grid-{index}').write_text(str(os.get_terminal_size()))
 os.write(1, f'\\x1b]2;terminal-{index}\\x07live terminal {index}\\r\\n'.encode())
 def background():
     sent = False
     launched = False
+    updated = False
     while True:
         (work / f'alive-{index}').touch()
         if (work / f'stop-{index}').exists(): os._exit(0)
+        if (work / f'update-{index}').exists() and not updated:
+            (work / f'grid-check-{index}').write_text(str(os.get_terminal_size()))
+            os.write(1, b'\\x1b[3;1H\\x1b[45m  Closed window is still running  \\x1b[0m')
+            updated = True
         if (work / f'query-{index}').exists() and not sent:
             os.write(1, b'\\x1b[6n\\x1b[16t\\x1b_Gi=123,a=q,t=d,f=24,s=1,v=1;AAAA\\x1b\\\\')
             sent = True
@@ -71,7 +80,7 @@ env = dict(os.environ, HOME=str(work), XDG_CONFIG_HOME=str(work / '.config'),
            MYPIXELS_CONFIG=str(config), MYPIXELS_KEYS=str(keys),
            MYPIXELS_BUS='com.github.volca.mypixels.daemon_test',
            MYPIXELS_MCP=str(work / 'mcp.sock'), SHELL=str(fixture),
-           DAEMON_TEST_WORK=str(work), DAEMON_TEST_BINARY=str(binary), RUST_LOG='warn,mypixels=info')
+           DAEMON_TEST_WORK=str(work), DAEMON_TEST_BINARY=str(binary), MYPIXELS_UI_GEOMETRY='1', RUST_LOG='warn,mypixels=info')
 env.pop('WAYLAND_DISPLAY', None)
 env.pop('MYPIXELS_WINDOW', None)
 log_path = work / 'app.log'
@@ -114,8 +123,8 @@ def send(key):
     time.sleep(.15)
     if key.endswith('ctrl+shift+w'):
         prefix = key.rsplit(':', 1)[0] + ':' if key.startswith('window:') else ''
-        send(prefix + 'tab')
-        send(prefix + 'return')
+        x, y = control_center(log_path, 'close/primary')
+        send(prefix + f'click:{x},{y}')
 
 
 def heartbeat(index):
@@ -160,8 +169,8 @@ try:
     request_close(wid)
     time.sleep(.4)
     sp.run(['import', '-window', wid, str(work / 'close-confirmation.png')], env=env, check=True)
-    send('tab')
-    send('return')
+    x, y = control_center(log_path, 'close/primary')
+    send(f'click:{x},{y}')
     wait(lambda: not windows(), 'last window did not close')
     for index in range(4):
         assert heartbeat(index), f'closed window killed terminal {index}'
@@ -236,22 +245,52 @@ try:
     wait(lambda: len(windows()[1]['tabs']) == 2, 'restored shell routed to another window')
     assert titles(windows()[0]) == ['terminal-7']
     wait(lambda: titles(windows()[1]) == ['terminal-6', 'terminal-8'], 'routed terminal title missing')
+    retained_id = windows()[1]['window']
+    for index in range(9, 13):
+        send('window:2:ctrl+shift+t')
+        wait(lambda: (work / f'alive-{index}').exists(), 'carousel terminal missing')
     send('window:2:ctrl+shift+w')
     wait(lambda: len(windows()) == 1, 'restored window did not close again')
     send('ctrl+shift+g')
     wid = sp.check_output(['xdotool', 'search', '--onlyvisible', '--pid', str(app.pid)], env=env).splitlines()[-1]
-    sp.run(['import', '-window', wid, str(work / 'window-graveyard.png')], env=env, check=True)
-    geometry = sp.check_output(['xdotool', 'getwindowgeometry', '--shell', wid], env=env).decode()
-    width = int(next(line[6:] for line in geometry.splitlines() if line.startswith('WIDTH=')))
-    sp.run(['xdotool', 'windowfocus', '--sync', wid], env=env, check=True)
-    sp.run(['xdotool', 'mousemove', '--window', wid, str(width - 305), '138', 'click', '1'], env=env, check=True)
+    prefix = f'graveyard/window/{retained_id}'
+
+    def click_control(name):
+        x, y = control_center(log_path, name)
+        sp.run(['xdotool', 'windowraise', wid], env=env, check=True)
+        sp.run(['xdotool', 'windowfocus', '--sync', wid], env=env, check=True)
+        sp.run(['xdotool', 'mousemove', '--window', wid, str(round(x)), str(round(y)), 'click', '1'], env=env, check=True)
+        time.sleep(.3)
+
+    def screenshot(name):
+        path = work / f'{name}.png'
+        sp.run(['import', '-window', wid, str(path)], env=env, check=True)
+        return Image.open(path).convert('RGB')
+
+    time.sleep(2)
+    screenshot('window-graveyard')
+    sp.run(['xdotool', 'windowsize', '--sync', wid, '560', '480'], env=env, check=True)
+    time.sleep(1)
+    before = screenshot('window-graveyard-small')
+    well = tuple(round(value) for value in control_rect(log_path, prefix + '/tab/6'))
+    assert any(hi > 90 for lo, hi in before.crop(well).getextrema()), 'retained window preview has no terminal content'
+    (work / 'update-12').touch()
+    wait(lambda: ImageChops.difference(before.crop(well), screenshot('window-graveyard-live').crop(well)).getbbox(),
+         'retained terminal preview did not refresh')
+    assert (work / 'grid-12').read_text() == (work / 'grid-check-12').read_text(), 'preview resized the retained terminal'
+    # Browse backward through the shared carousel, without reopening the window.
+    click_control(prefix + '/previous')
+    click_control(prefix + '/previous')
+    assert len(windows()) == 1, 'browsing the carousel restored a window'
+    screenshot('window-graveyard-browsed')
+    click_control(prefix + '/restore')
     wait(lambda: len(windows()) == 2, 'graveyard Restore window button failed')
+    assert windows()[1]['active_tab'] == 4, 'Restore did not use the browsed terminal'
     send('window:2:ctrl+shift+w')
     wait(lambda: len(windows()) == 1, 'panel-restored window did not close')
-    time.sleep(.3)
-    sp.run(['xdotool', 'windowfocus', '--sync', wid], env=env, check=True)
-    sp.run(['xdotool', 'mousemove', '--window', wid, str(width - 212), '138', 'click', '1'], env=env, check=True)
-    wait(lambda: not heartbeat(6) and not heartbeat(8), 'graveyard Kill window button failed')
+    time.sleep(.5)
+    click_control(prefix + '/kill')
+    wait(lambda: all(not heartbeat(index) for index in [6, 8, 9, 10, 11, 12]), 'graveyard Kill window button failed')
     print(f'daemon smoke ok (artifacts in {work})')
 finally:
     app.terminate()

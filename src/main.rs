@@ -308,12 +308,20 @@ struct ClosedWindow {
     workspace: usize,
     size: winit::dpi::PhysicalSize<u32>,
     maximized: bool,
+    closed_at: Instant,
 }
 
 impl ClosedWindow {
     fn tabs(&self) -> impl Iterator<Item = &Tab> {
         self.workspaces.iter().flat_map(|ws| ws.tabs.iter())
     }
+}
+
+/// A parked terminal rendered into one of the shared temporary preview targets.
+#[derive(Clone, Copy)]
+enum ParkedPreview {
+    Workspace(usize, usize),
+    ClosedWindow(usize, usize, usize),
 }
 
 /// A persistent GPU thumbnail shared by switcher cards and tab hover previews.
@@ -388,8 +396,8 @@ struct Win {
     /// only while the panel is open.
     grave_thumbs: Vec<SwThumb>,
     thumb_rr: usize,
-    ws_preview_rr: usize,
-    ws_preview_next: Instant,
+    parked_preview_rr: usize,
+    parked_preview_next: Instant,
     preview_next: Instant,
     repaint_at: Option<Instant>,
     /// last BEL seen anywhere (visual bell; see bell_flash)
@@ -1184,6 +1192,7 @@ impl App {
                 id: win.session_id as usize, workspaces, workspace,
                 size: win.window.as_ref().unwrap().inner_size(),
                 maximized: win.window.as_ref().unwrap().is_maximized(),
+                closed_at: Instant::now(),
             });
             while self.closed_windows.len() > self.config.graveyard_limit {
                 self.kill_closed_window(0);
@@ -1630,7 +1639,7 @@ impl App {
                 title: tabs.get(active).map(|t| t.display_title()).unwrap_or_default(),
                 genre: self.config.workspace_genres[i].clone(),
                 icon: self.config.workspace_icons[i],
-                tabs: tabs.iter().enumerate().map(|(index, tab)| egui_ui::WsTab {
+                tabs: tabs.iter().enumerate().map(|(index, tab)| egui_ui::CarouselTab {
                     id: tab.id,
                     title: tab.display_title(),
                     selected: index == active,
@@ -1639,6 +1648,34 @@ impl App {
                 }).collect(),
                 current: i == win.workspace,
                 shortcut: config::workspace_shortcut(&self.config, i),
+            }
+        }).collect()
+    }
+
+    fn parked_preview_tab(&self, source: ParkedPreview) -> &Tab {
+        match source {
+            ParkedPreview::Workspace(workspace, tab) => &self.wins[self.cur].workspaces[workspace].tabs[tab],
+            ParkedPreview::ClosedWindow(window, workspace, tab) => &self.closed_windows[window].workspaces[workspace].tabs[tab],
+        }
+    }
+
+    fn grave_window_rows(&self) -> Vec<egui_ui::GraveWindowRow> {
+        let thumbs = &self.wins[self.cur].sw_thumbs;
+        self.closed_windows.iter().rev().map(|window| {
+            let ws = &window.workspaces[window.workspace];
+            let title = ws.tabs.get(ws.active).or_else(|| window.tabs().next())
+                .map(|tab| tab.display_title()).unwrap_or_default();
+            egui_ui::GraveWindowRow {
+                id: window.id, title,
+                workspaces: window.workspaces.iter().filter(|ws| !ws.tabs.is_empty()).count(),
+                buried: buried_label(window.closed_at.elapsed().as_secs()),
+                tabs: window.workspaces.iter().enumerate().flat_map(|(workspace, ws)| {
+                    ws.tabs.iter().enumerate().map(move |(index, tab)| egui_ui::CarouselTab {
+                        id: tab.id, title: tab.display_title(),
+                        selected: workspace == window.workspace && index == ws.active,
+                        preview: thumbs.iter().find(|thumb| thumb.tab_id == tab.id).map(|thumb| (thumb.handle, thumb.size)),
+                    })
+                }).collect(),
             }
         }).collect()
     }
@@ -2040,6 +2077,11 @@ impl App {
     /// Tab-based form: the graveyard's buried tabs share the same placement
     /// math, and they are not in any window's index space.
     fn image_quads_for(&self, tab: &Tab, gpu: &mut Gpu, strip_h: f32, w: u32) -> Vec<gpu::ImageQuad> {
+        self.image_quads_in_grid(tab, gpu, strip_h, w, [self.cell_w, self.cell_h], self.wins[self.cur].rows)
+    }
+
+    fn image_quads_in_grid(&self, tab: &Tab, gpu: &mut Gpu, strip_h: f32, w: u32,
+        cell: [f32; 2], rows: usize) -> Vec<gpu::ImageQuad> {
         let mut draws = Vec::new();
         let tab_id = tab.id as u32;
         if let Some(k) = self.kitty.get(&tab.id) {
@@ -2049,14 +2091,14 @@ impl App {
         };
         let top_abs = hist.saturating_sub(off);
         let vy0 = strip_h;
-        let vy1 = strip_h + self.wins[self.cur].rows as f32 * self.cell_h;
+        let vy1 = strip_h + rows as f32 * cell[1];
         for pl in k.placements_sorted() {
             let Some(img) = k.image(pl.image_id) else { continue };
-            let Some(geometry) = pl.geometry(img, [self.cell_w, self.cell_h]) else { continue };
+            let Some(geometry) = pl.geometry(img, [cell[0], cell[1]]) else { continue };
             let [iw, ih] = geometry.size;
-            let x0 = pl.col as f32 * self.cell_w + pl.x_off as f32;
+            let x0 = pl.col as f32 * cell[0] + pl.x_off as f32;
             let y0 = vy0
-                + (pl.anchor_line as f32 - top_abs as f32) * self.cell_h
+                + (pl.anchor_line as f32 - top_abs as f32) * cell[1]
                 + pl.y_off as f32;
             let (cx0, cy0) = (x0.max(0.0), y0.max(vy0));
             let (cx1, cy1) = ((x0 + iw).min(w as f32), (y0 + ih).min(vy1));
@@ -2367,41 +2409,51 @@ impl App {
         // Parked workspaces share the thumbnail cache, but only two temporary
         // full-size GPU targets are needed. Rotate through visible cards at 5 Hz;
         // keep the small thumbnails when the panel closes or workspaces switch.
-        let mut ws_preview_tabs = Vec::new();
+        let mut parked_preview_tabs = Vec::new();
         let ws_switcher = self.config.workspaces_enabled && self.wins[self.cur].overview.is_some();
-        let ws_panel = self.wins[self.cur].egui.as_ref()
-            .filter(|e| ws_switcher || e.ui_state.panel_is(egui_ui::RightPanel::Workspaces));
-        if let Some(e) = ws_panel {
-            let visible_tabs = &e.ui_state.ws_visible_tabs;
-            let query = if ws_switcher { String::new() } else { e.ui_state.ws_query.trim().to_lowercase() };
-            let populated_only = ws_switcher || e.ui_state.ws_populated_only;
+        if let Some(e) = self.wins[self.cur].egui.as_ref() {
             let win = &self.wins[self.cur];
             let mut candidates = Vec::new();
-            for (workspace, slot) in win.workspaces.iter().enumerate() {
-                if workspace == win.workspace || (populated_only && slot.tabs.is_empty()) { continue; }
-                let matches = query.is_empty()
-                    || format!("Workspace {} {}", workspace + 1, self.config.workspace_genres[workspace]).to_lowercase().contains(&query)
-                    || slot.tabs.iter().any(|tab| tab.display_title().to_lowercase().contains(&query));
-                if !matches { continue; }
-                for (tab, terminal) in slot.tabs.iter().enumerate() {
-                    if visible_tabs.contains(&terminal.id)
-                        || (visible_tabs.is_empty() && tab == slot.active) {
-                        candidates.push((workspace, tab));
+            if ws_switcher || e.ui_state.panel_is(egui_ui::RightPanel::Workspaces) {
+                let visible_tabs = &e.ui_state.ws_visible_tabs;
+                let query = if ws_switcher { String::new() } else { e.ui_state.ws_query.trim().to_lowercase() };
+                let populated_only = ws_switcher || e.ui_state.ws_populated_only;
+                for (workspace, slot) in win.workspaces.iter().enumerate() {
+                    if workspace == win.workspace || (populated_only && slot.tabs.is_empty()) { continue; }
+                    let matches = query.is_empty()
+                        || format!("Workspace {} {}", workspace + 1, self.config.workspace_genres[workspace]).to_lowercase().contains(&query)
+                        || slot.tabs.iter().any(|tab| tab.display_title().to_lowercase().contains(&query));
+                    if !matches { continue; }
+                    for (tab, terminal) in slot.tabs.iter().enumerate() {
+                        if visible_tabs.contains(&terminal.id) || (visible_tabs.is_empty() && tab == slot.active) {
+                            candidates.push(ParkedPreview::Workspace(workspace, tab));
+                        }
+                    }
+                }
+            } else if e.ui_state.panel_is(egui_ui::RightPanel::Graveyard) {
+                let visible = &e.ui_state.grave_visible_tabs;
+                for (window, closed) in self.closed_windows.iter().enumerate() {
+                    for (workspace, slot) in closed.workspaces.iter().enumerate() {
+                        for (tab, terminal) in slot.tabs.iter().enumerate() {
+                            if visible.contains(&terminal.id) || (visible.is_empty() && workspace == closed.workspace && tab == slot.active) {
+                                candidates.push(ParkedPreview::ClosedWindow(window, workspace, tab));
+                            }
+                        }
                     }
                 }
             }
-            if now >= win.ws_preview_next && !candidates.is_empty() {
-                let start = win.ws_preview_rr % candidates.len();
+            if now >= win.parked_preview_next && !candidates.is_empty() {
+                let start = win.parked_preview_rr % candidates.len();
                 for offset in 0..candidates.len().min(2) {
-                    ws_preview_tabs.push(candidates[(start + offset) % candidates.len()]);
+                    parked_preview_tabs.push(candidates[(start + offset) % candidates.len()]);
                 }
                 let win = &mut self.wins[self.cur];
-                win.ws_preview_rr = (start + ws_preview_tabs.len()) % candidates.len();
-                win.ws_preview_next = now + std::time::Duration::from_millis(200);
+                win.parked_preview_rr = (start + parked_preview_tabs.len()) % candidates.len();
+                win.parked_preview_next = now + std::time::Duration::from_millis(200);
             }
         }
-        let ws_preview_frames: Vec<FrameData> = ws_preview_tabs.iter().enumerate().map(|(pi, &(workspace, tab))| {
-            self.build_frame(&self.wins[self.cur].workspaces[workspace].tabs[tab], false,
+        let parked_preview_frames: Vec<FrameData> = parked_preview_tabs.iter().enumerate().map(|(pi, &source)| {
+            self.build_frame(self.parked_preview_tab(source), false,
                 |damage| damage_events.push((n + g + pi, damage)))
         }).collect();
         self.bg = saved_bg;
@@ -2578,12 +2630,7 @@ impl App {
                 // retitles itself shows up in the list on the next frame.
                 if egui.ui_state.panel_is(egui_ui::RightPanel::Graveyard) {
                     egui.ui_state.grave_rows = self.grave_rows();
-                    egui.ui_state.grave_windows = self.closed_windows.iter().rev().map(|w| {
-                        let ws = &w.workspaces[w.workspace];
-                        let title = ws.tabs.get(ws.active).or_else(|| w.tabs().next())
-                            .map(|tab| tab.display_title()).unwrap_or_default();
-                        (w.id, title, w.tabs().count())
-                    }).collect();
+                    egui.ui_state.grave_windows = self.grave_window_rows();
                 }
                 egui.ui_state.panel_top = if show_strip { self.tab_h / ctx.pixels_per_point() } else { 0.0 };
                 let full = ctx.run_ui(raw, |ui| {
@@ -2767,7 +2814,18 @@ impl App {
                     egui.ui_state.grave_sel = None;
                     window.request_redraw();
                 }
-                if let Some((id, raise)) = egui.ui_state.grave_window_out.take() {
+                if let Some((id, choice)) = egui.ui_state.grave_window_out.take() {
+                    let raise = matches!(choice, egui_ui::GraveWindowAction::Restore(_));
+                    if let egui_ui::GraveWindowAction::Restore(Some(tab)) = choice
+                        && let Some(closed) = self.closed_windows.iter_mut().find(|closed| closed.id == id) {
+                        for (workspace, slot) in closed.workspaces.iter_mut().enumerate() {
+                            if let Some(index) = slot.tabs.iter().position(|terminal| terminal.id == tab) {
+                                closed.workspace = workspace;
+                                slot.active = index;
+                                break;
+                            }
+                        }
+                    }
                     let action = if raise { "reopen_window" } else { "kill_window" };
                     self.pending_action = Some((window.id(), format!("{action}_{id}")));
                     window.request_redraw();
@@ -2911,7 +2969,7 @@ impl App {
         let images = self.image_quads(active, &mut gpu, strip_h, w);
         let mut tab_ids: Vec<_> = self.wins[self.cur].tabs.iter().map(|tab| tab.id).collect();
         tab_ids.extend(self.graveyard.iter().map(|entry| entry.tab.id));
-        tab_ids.extend(ws_preview_tabs.iter().map(|&(workspace, tab)| self.wins[self.cur].workspaces[workspace].tabs[tab].id));
+        tab_ids.extend(parked_preview_tabs.iter().map(|&source| self.parked_preview_tab(source).id));
         gpu.ensure_previews(&tab_ids, (w, h));
         for (i, damage) in damage_events {
             gpu.damage_terminal(i, &damage);
@@ -3156,48 +3214,59 @@ impl App {
             {
                 let grave_open = self.wins[self.cur].egui.as_ref()
                     .is_some_and(|e| e.ui_state.panel_is(egui_ui::RightPanel::Graveyard));
-                let mut workspace_built = 0;
-                for pi in 0..g + ws_preview_tabs.len() {
+                let mut parked_built = 0;
+                for pi in 0..g + parked_preview_tabs.len() {
                     let parked = pi >= g;
                     if !parked && !grave_open { continue; }
                     let i = n + pi;
                     let (tab, fd) = if parked {
-                        let (workspace, ti) = ws_preview_tabs[pi - g];
-                        (&self.wins[self.cur].workspaces[workspace].tabs[ti], &ws_preview_frames[pi - g])
+                        (self.parked_preview_tab(parked_preview_tabs[pi - g]), &parked_preview_frames[pi - g])
                     } else {
                         (&self.graveyard[pi].tab, &grave_frames[pi])
                     };
+                    // Retained windows keep their PTY geometry. Fit their original
+                    // grid into the temporary target without resizing live programs.
+                    let retained = parked && matches!(parked_preview_tabs[pi - g], ParkedPreview::ClosedWindow(..));
+                    let (scale, rows) = if retained {
+                        let term = tab.term.lock();
+                        let scale = (w as f32 / (term.columns() as f32 * self.cell_w).max(1.0))
+                            .min((h as f32 - strip_h) / (term.screen_lines() as f32 * self.cell_h).max(1.0));
+                        (scale.max(0.01), term.screen_lines())
+                    } else { (1.0, self.wins[self.cur].rows) };
+                    let cell_w = self.cell_w * scale;
+                    let cell_h = self.cell_h * scale;
+                    let metrics = Metrics::new(gpu.terminal_metrics.font_size * scale, gpu.terminal_metrics.line_height * scale);
                     let style = TerminalStyle {
-                        tab_id: tab_ids[i], size: (w, h), cell: (self.cell_w, self.cell_h), strip_h,
+                        tab_id: tab_ids[i], size: (w, h), cell: (cell_w, cell_h), strip_h,
                         fg: fd.fg, bg: fd.bg, cursor_color: fd.cursor_color,
                         transparency: self.config.term_transparency,
                     };
                     if gpu.prev_styles[i].as_ref() != Some(&style) {
                         gpu.prev_damage[i] = Damage::full();
                     }
-                    let images = self.image_quads_for(tab, &mut gpu, strip_h, w);
+                    let images = self.image_quads_in_grid(tab, &mut gpu, strip_h, w, [cell_w, cell_h], rows);
                     gpu.update_overlays(i, gpu::TerminalOverlays {
                         images: images.clone(), ..Default::default()
-                    }, self.wins[self.cur].rows, self.cell_h, strip_h);
+                    }, rows, cell_h, strip_h);
                     if gpu.prev_damage[i].is_empty() { continue; }
                     let throttled = gpu.prev_revision[i] != 0
                         && now.duration_since(gpu.prev_last[i]) < std::time::Duration::from_millis(200);
                     if parked {
-                        if workspace_built >= 2 { continue; }
+                        if parked_built >= 2 { continue; }
                     } else if throttled || built >= 2 { continue; }
                     let damage = std::mem::take(&mut gpu.prev_damage[i]);
                     gpu.prev_styles[i] = Some(style);
                     let runs = fd.prepare_text(&mut gpu.prev_bufs[i], &mut self.font_system,
-                        gpu.terminal_metrics, self.cell_w, &damage, None);
+                        metrics, cell_w, &damage, None);
                     gpu.prev_last[i] = now;
                     jobs.push(gpu::PreviewJob {
                         idx: i,
                         images,
-                        scissors: damage.scissors((w, h), self.cell_h, strip_h, self.wins[self.cur].rows),
+                        scissors: damage.scissors((w, h), cell_h, strip_h, rows),
                         bounds,
                         text: runs.iter().map(|run| gpu::PreviewText {
-                            left: run.col as f32 * self.cell_w,
-                            top: strip_h + run.row as f32 * self.cell_h,
+                            left: run.col as f32 * cell_w,
+                            top: strip_h + run.row as f32 * cell_h,
                             color: run.fg,
                         }).collect(),
                         rects: preview_rects(
@@ -3207,15 +3276,15 @@ impl App {
                             &[],
                             self.config.adjust_terminal_color(self.config.selection_color.to_f32()),
                             bg_a,
-                            self.cell_w,
-                            self.cell_h,
+                            cell_w,
+                            cell_h,
                             strip_h,
-                            self.wins[self.cur].rows,
+                            rows,
                             w,
                             h,
                         ),
                     });
-                    if parked { workspace_built += 1; } else { built += 1; }
+                    if parked { parked_built += 1; } else { built += 1; }
                 }
             }
         }
@@ -3287,7 +3356,8 @@ impl App {
         // Downsample rendered previews on the GPU; egui samples the same
         // persistent textures. No map_async, CPU wait, or re-upload is needed.
         if self.wins[self.cur].egui.is_some() {
-            let ids: Vec<_> = self.wins[self.cur].all_tabs().map(|tab| tab.id).collect();
+            let mut ids: Vec<_> = self.wins[self.cur].all_tabs().map(|tab| tab.id).collect();
+            ids.extend(self.closed_windows.iter().flat_map(|window| window.tabs().map(|tab| tab.id)));
             // Renderer registrations must be freed along with closed/moved tabs.
             let mut thumbs = std::mem::take(&mut self.wins[self.cur].sw_thumbs);
             let renderer = &mut self.wins[self.cur].egui.as_mut().unwrap().renderer;
@@ -3306,7 +3376,7 @@ impl App {
             let mut updated = 0;
             let mut thumbnail_order = preview_order.clone();
             if !thumbnail_order.contains(&active) { thumbnail_order.insert(0, active); }
-            thumbnail_order.extend((0..ws_preview_tabs.len()).map(|pi| n + g + pi));
+            thumbnail_order.extend((0..parked_preview_tabs.len()).map(|pi| n + g + pi));
             for &i in &thumbnail_order {
                 if i < n && updated >= 2 { continue; }
                 let revision = gpu.prev_revision.get(i).copied().unwrap_or(0);
@@ -5453,8 +5523,8 @@ impl App {
                 sw_thumbs: Vec::new(),
                 grave_thumbs: Vec::new(),
                 thumb_rr: 0,
-                ws_preview_rr: 0,
-                ws_preview_next: Instant::now(),
+                parked_preview_rr: 0,
+                parked_preview_next: Instant::now(),
                 preview_next: Instant::now(),
                 repaint_at: None,
                 autoscroll_next: None,
