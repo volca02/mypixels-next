@@ -51,7 +51,6 @@ use damage::Damage;
 use tab::{SemanticMark, SpikeListener, Tab};
 
 const HISTORY: usize = 10_000;
-const MAX_RUNS: usize = 4096;
 const PALETTE: [[f32; 3]; 16] = [
     [0.0, 0.0, 0.0], [0.8, 0.2, 0.2], [0.2, 0.6, 0.2], [0.6, 0.6, 0.2],
     [0.2, 0.2, 0.8], [0.6, 0.2, 0.6], [0.2, 0.6, 0.6], [0.8, 0.8, 0.8],
@@ -217,6 +216,48 @@ struct FrameData {
     cursor_color: [f32; 3],
     runs: Vec<Run>,
     cursor: Option<Cursor>,
+}
+
+impl FrameData {
+    /// Allocate and shape every visible text run before any drawing borrows the
+    /// buffers. Pool capacity is a rendering resource, never a content limit.
+    fn prepare_text<'a>(&'a self, buffers: &mut Vec<Buffer>, fs: &mut FontSystem,
+        metrics: Metrics, cell_w: f32, damage: &Damage, hidden_row: Option<u32>) -> Vec<&'a Run> {
+        let runs: Vec<_> = self.runs.iter().filter(|run| damage.shapes_row(run.row)
+            && hidden_row != Some(run.row) && !run.text.chars().all(|c| c == ' ')).collect();
+        if buffers.len() < runs.len() {
+            buffers.resize_with(runs.len(), || Buffer::new(fs, metrics));
+        }
+        for (buffer, run) in buffers.iter_mut().zip(&runs) {
+            buffer.set_metrics(metrics);
+            fonts::shape_terminal_run(buffer, fs, &run.text, run.attrs, &run.cells, cell_w);
+        }
+        runs
+    }
+}
+
+#[cfg(test)]
+mod text_preparation_tests {
+    use super::*;
+    #[test]
+    fn text_preparation_preserves_every_run_above_the_old_pool_limit() {
+        let mut fs = FontSystem::new();
+        let attrs = Box::leak(Box::new(Attrs::new()));
+        let frame = FrameData { runs: (0..6120).map(|i| Run {
+            row: (i / 120) as u32, col: (i % 120) as u32, width: 1,
+            fg: if i % 2 == 0 { [1.0, 0.0, 0.0] } else { [0.0, 1.0, 0.0] }, bg: [0.0; 3],
+            text: "X".into(), cells: vec![(0, 0)], attrs,
+        }).collect(), ..Default::default() };
+        let mut buffers = Vec::new();
+        let prepared = frame.prepare_text(&mut buffers, &mut fs, Metrics::new(16.0, 20.0), 10.0, &Damage::full(), None);
+        assert_eq!(prepared.len(), 6120);
+        assert_eq!(buffers.len(), prepared.len());
+        assert_eq!(prepared.last().unwrap().row, 50);
+        assert!(buffers.last().unwrap().layout_runs().any(|run| !run.glyphs.is_empty()), "final run was not shaped");
+        let prepared = frame.prepare_text(&mut buffers, &mut fs, Metrics::new(16.0, 20.0), 10.0, &Damage::full(), Some(50));
+        assert_eq!(prepared.len(), 6000, "notice suppression must not truncate other rows");
+    }
+
 }
 
 /// Exact rendering inputs outside Alacritty's cell damage tracking.
@@ -1821,9 +1862,8 @@ impl App {
 
         // Native scaling can rebuild metrics before the first window exists.
         for gpu in self.wins.iter_mut().filter_map(|w| w.gpu.as_mut()) {
-            gpu.pool = (0..MAX_RUNS)
-                .map(|_| Buffer::new(&mut self.font_system, Metrics::new(font_px, term_lh)))
-                .collect();
+            gpu.terminal_metrics = Metrics::new(font_px, term_lh);
+            gpu.pool.clear();
             gpu.prompt_buf =
                 Buffer::new(&mut self.font_system, Metrics::new(font_px, term_lh));
             gpu.invalidate_terminals();
@@ -2328,12 +2368,13 @@ impl App {
         // full-size GPU targets are needed. Rotate through visible cards at 5 Hz;
         // keep the small thumbnails when the panel closes or workspaces switch.
         let mut ws_preview_tabs = Vec::new();
+        let ws_switcher = self.config.workspaces_enabled && self.wins[self.cur].overview.is_some();
         let ws_panel = self.wins[self.cur].egui.as_ref()
-            .filter(|e| e.ui_state.panel_is(egui_ui::RightPanel::Workspaces));
+            .filter(|e| ws_switcher || e.ui_state.panel_is(egui_ui::RightPanel::Workspaces));
         if let Some(e) = ws_panel {
             let visible_tabs = &e.ui_state.ws_visible_tabs;
-            let query = e.ui_state.ws_query.trim().to_lowercase();
-            let populated_only = e.ui_state.ws_populated_only;
+            let query = if ws_switcher { String::new() } else { e.ui_state.ws_query.trim().to_lowercase() };
+            let populated_only = ws_switcher || e.ui_state.ws_populated_only;
             let win = &self.wins[self.cur];
             let mut candidates = Vec::new();
             for (workspace, slot) in win.workspaces.iter().enumerate() {
@@ -2471,6 +2512,7 @@ impl App {
         // workspaces off there is one set of tabs and nothing to name.
         let sw_workspace = self.config.workspaces_enabled
             .then_some(self.wins[self.cur].workspace);
+        let workspace_colors = self.config.workspace_colors.map(ui_style::rgb_c32);
         let sw_dim = egui_ui::dim_fill(
             self.bg,
             (self.config.tab_overview_opacity.clamp(0.0, 1.0) * 255.0) as u8,
@@ -2526,9 +2568,9 @@ impl App {
                     }
                 }
                 // The workspace rows are a snapshot of this window's ten
-                // slots, rebuilt every frame while the panel is open, so a tab
+                // slots, rebuilt while the panel or switcher is open, so a tab
                 // opened, closed or retitled elsewhere shows up immediately.
-                if egui.ui_state.panel_is(egui_ui::RightPanel::Workspaces) {
+                if egui.ui_state.panel_is(egui_ui::RightPanel::Workspaces) || (sw_open && sw_workspace.is_some()) {
                     egui.ui_state.ws_rows = self.ws_rows();
                 }
                 // The graveyard rows are a snapshot of the buried tabs,
@@ -2609,6 +2651,8 @@ impl App {
                             &sw_cards,
                             egui::vec2(sw_preview_w.round(), sw_preview_h.round()),
                             sw_workspace,
+                            &mut egui.ui_state,
+                            &workspace_colors,
                             &mut egui.switcher_pick,
                         );
                     }
@@ -2990,35 +3034,16 @@ impl App {
             self.cursor_pt = None;
         }
 
-        // --- Terminal text ---
-        // SAFETY: pool indices are disjoint (run index < MAX_RUNS), the pool
-        // never reallocates after init, and the derived shared references are
-        // only used this frame, before any further pool writes. The switcher
-        // draws through egui and never touches this pool.
-        {
-            let fs = &mut self.font_system;
-            let pool = &mut gpu.pool;
-            for (i, run) in frame.runs.iter().filter(|run| live_damage.shapes_row(run.row)).take(MAX_RUNS).enumerate() {
-                if self.wins[self.cur].notice.is_some() && run.row as usize == self.wins[self.cur].rows.saturating_sub(1) { continue; }
-                let blank = run.text.chars().all(|c| c == ' ');
-                let default_fg =
-                    (run.fg[0] - frame.fg[0]).abs() + (run.fg[1] - frame.fg[1]).abs()
-                        + (run.fg[2] - frame.fg[2]).abs()
-                        < 0.01;
-                if blank && default_fg {
-                    continue;
-                }
-                let b = &mut pool[i];
-                fonts::shape_terminal_run(b, fs, &run.text, run.attrs, &run.cells, self.cell_w);
-                let buf: &Buffer = unsafe { &*(&pool[i] as *const Buffer) };
-                areas.push(gpu::terminal_text_area(
-                    buf,
-                    run.col as f32 * self.cell_w,
-                    strip_h + run.row as f32 * self.cell_h,
-                    run.fg,
-                    bounds,
-                ));
-            }
+        // Shape first, then borrow immutable buffers for glyphon. No raw
+        // references or fixed allocation ceiling are needed.
+        let hidden_row = self.wins[self.cur].notice.as_ref()
+            .map(|_| self.wins[self.cur].rows.saturating_sub(1) as u32);
+        let mut text_pool = std::mem::take(&mut gpu.pool);
+        let runs = frame.prepare_text(&mut text_pool, &mut self.font_system,
+            gpu.terminal_metrics, self.cell_w, &live_damage, hidden_row);
+        for (buffer, run) in text_pool.iter().zip(&runs) {
+            areas.push(gpu::terminal_text_area(buffer, run.col as f32 * self.cell_w,
+                strip_h + run.row as f32 * self.cell_h, run.fg, bounds));
         }
 
         // --- Notice prompt (overlays the last terminal row; renaming moved
@@ -3095,16 +3120,8 @@ impl App {
                 if throttled || built >= 2 { continue; }
                 let damage = std::mem::take(&mut gpu.prev_damage[i]);
                 gpu.prev_styles[i] = Some(style);
-                let metrics = gpu.pool[0].metrics();
-                let buffers = &mut gpu.prev_bufs[i];
-                let runs: Vec<_> = fd.runs.iter().filter(|run| damage.shapes_row(run.row)).take(MAX_RUNS).collect();
-                buffers.resize_with(runs.len(), || Buffer::new(&mut self.font_system, metrics));
-                for (buffer, run) in buffers.iter_mut().zip(&runs) {
-                    buffer.set_metrics(metrics);
-                    fonts::shape_terminal_run(
-                        buffer, &mut self.font_system, &run.text, run.attrs, &run.cells, self.cell_w,
-                    );
-                }
+                let runs = fd.prepare_text(&mut gpu.prev_bufs[i], &mut self.font_system,
+                    gpu.terminal_metrics, self.cell_w, &damage, None);
                 gpu.prev_last[i] = now;
                 jobs.push(gpu::PreviewJob {
                     idx: i,
@@ -3170,16 +3187,8 @@ impl App {
                     } else if throttled || built >= 2 { continue; }
                     let damage = std::mem::take(&mut gpu.prev_damage[i]);
                     gpu.prev_styles[i] = Some(style);
-                    let metrics = gpu.pool[0].metrics();
-                    let buffers = &mut gpu.prev_bufs[i];
-                    let runs: Vec<_> = fd.runs.iter().filter(|run| damage.shapes_row(run.row)).take(MAX_RUNS).collect();
-                    buffers.resize_with(runs.len(), || Buffer::new(&mut self.font_system, metrics));
-                    for (buffer, run) in buffers.iter_mut().zip(&runs) {
-                        buffer.set_metrics(metrics);
-                        fonts::shape_terminal_run(
-                            buffer, &mut self.font_system, &run.text, run.attrs, &run.cells, self.cell_w,
-                        );
-                    }
+                    let runs = fd.prepare_text(&mut gpu.prev_bufs[i], &mut self.font_system,
+                        gpu.terminal_metrics, self.cell_w, &damage, None);
                     gpu.prev_last[i] = now;
                     jobs.push(gpu::PreviewJob {
                         idx: i,
@@ -3241,6 +3250,7 @@ impl App {
             _ => None,
         };
         gpu.render_frame(&mut self.font_system, areas, images, jobs, window, egui_frame, active, live_scissors, generation, force_present);
+        gpu.pool = text_pool;
 
         // Finish the screenshot: read the offscreen frame (already rendered
         // this pass) at full resolution and hand a PNG to the clipboard.
@@ -4640,19 +4650,6 @@ impl App {
             self.close_switcher();
             return true;
         }
-        let (screen_w, screen_h) = self.wins[self.cur].window.as_ref()
-            .map(|w| (w.inner_size().width as f32 / self.scale.max(1.0),
-                      w.inner_size().height as f32 / self.scale.max(1.0)))
-            .unwrap_or((1280.0, 800.0));
-        // The drawing side sizes the cards from the same inputs, so the
-        // arrow keys and the grid agree on the column count.
-        let strip_h = self.show_tab_strip().then(|| self.tab_h).unwrap_or(0.0);
-        let card_w = egui_ui::switcher_card_width(
-            screen_w,
-            screen_w / (screen_h - strip_h).max(1.0),
-            self.config.tab_overview_scale,
-        );
-        let cols = egui_ui::switcher_columns(screen_w, n, card_w);
         let handled = match key {
             Key::Named(NamedKey::Tab) => {
                 let step = if self.modifiers.shift_key() { n - 1 } else { 1 };
@@ -4671,19 +4668,10 @@ impl App {
                 self.wins[self.cur].active = (self.wins[self.cur].active + 1) % n;
                 true
             },
-            Key::Named(NamedKey::ArrowUp) => {
-                let r = self.wins[self.cur].active / cols;
-                if r > 0 {
-                    let dc = self.wins[self.cur].active % cols;
-                    self.wins[self.cur].active = ((r - 1) * cols + dc).min(n - 1);
-                }
-                true
-            },
-            Key::Named(NamedKey::ArrowDown) => {
-                let r = self.wins[self.cur].active / cols;
-                let t = (r + 1) * cols + (self.wins[self.cur].active % cols);
-                if t < n && t / cols > r {
-                    self.wins[self.cur].active = t;
+            Key::Named(NamedKey::ArrowUp) | Key::Named(NamedKey::ArrowDown) => {
+                let win = &mut self.wins[self.cur];
+                if let Some(layout) = win.egui.as_ref().and_then(|e| e.ui_state.switcher_layout.as_ref()) {
+                    win.active = layout.vertical_neighbor(win.active, n, matches!(key, Key::Named(NamedKey::ArrowUp)));
                 }
                 true
             },
@@ -5016,7 +5004,7 @@ impl App {
             "prev_color" => {
                 let cur_active = self.wins[self.cur].active;
                 if let Some(t) = self.wins[self.cur].tabs.get_mut(cur_active) {
-                    t.group = if t.group <= 0 || t.group >= 8 { 7 } else { t.group - 1 };
+                    t.group = if t.group == 0 || t.group >= 8 { 7 } else { t.group - 1 };
                 }
             },
             "toggle_hide_tabs" => {

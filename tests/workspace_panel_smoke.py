@@ -9,6 +9,8 @@ import subprocess as sp
 import tempfile
 import time
 
+from ui_geometry import control_rect, control_center
+
 from PIL import Image, ImageChops
 
 root = Path(__file__).resolve().parents[1]
@@ -58,7 +60,7 @@ while True:
 keys = work / 'keys'
 os.mkfifo(keys)
 env = dict(os.environ, HOME=str(work), XDG_CONFIG_HOME=str(work / '.config'),
-           MYPIXELS_CONFIG=str(config), MYPIXELS_KEYS=str(keys), RUST_LOG='info')
+           MYPIXELS_CONFIG=str(config), MYPIXELS_KEYS=str(keys), RUST_LOG='info', MYPIXELS_UI_GEOMETRY='1')
 env.pop('WAYLAND_DISPLAY', None)
 binary = os.environ.get('MYPIXELS_BIN', str(root / 'target/debug/mypixels'))
 log_path = work / 'app.log'
@@ -124,30 +126,23 @@ try:
     time.sleep(2)
     image = shot('workspace-cards')
     width, height = image.size
-    panel_width = min(600, max(360, width * .44))
-    left = width - panel_width + 14
     # Two Down presses expand workspace 3 without changing the live terminal.
     send('down')
     send('down')
     wait(lambda: spy()[3] == '2', 'keyboard selection failed')
     time.sleep(1)
     parked = shot('parked-workspace-expanded')
-    tile_width = min(174, max(100, (panel_width - 28 - 40) / 3))
-    tile_height = min(104, max(64, tile_width * .6))
-    well_top = 24 + 14 + 36 + 8 + 2 * 76 + 64
-    well = (round(left + 18), round(well_top + 10),
-            round(left + 12 + tile_width - 6), round(well_top + tile_height - 6))
+    well = tuple(round(value) for value in control_rect(log_path, 'workspace/3/tab/1'))
     assert any(high > 90 for low, high in parked.crop(well).getextrema()), 'parked preview has no terminal content'
     # A hidden PTY changing must update its preview without visiting it.
     (work / 'update-5').touch()
     wait(lambda: ImageChops.difference(parked.crop(well), shot('updated-parked-preview').crop(well)).getbbox(),
          'parked terminal preview did not update')
     # Expanded previews are separate buttons, below the card header.
-    click(left + 12 + tile_width + 8 + tile_width / 2,
-          24 + 14 + 36 + 8 + 2 * 76 + 64 + tile_height / 2)
+    click(*control_center(log_path, 'workspace/3/tab/2'))
     wait(lambda: spy()[:2] == (2, 1), 'preview did not select the exact parked terminal')
     # Search uses real keyboard events so editor focus and routing are checked.
-    click(width - 14 - 15 - 3 * 31, 24 + 14 + 18)
+    click(*control_center(log_path, 'Search workspaces'))
     run('xdotool', 'type', '--clearmodifiers', 'Research')
     wait(lambda: spy()[3] == '1', 'search did not filter by genre')
     shot('genre-search')
@@ -160,7 +155,7 @@ try:
     assert all(not path.read_bytes() for path in work.glob('input-*')), 'panel input leaked into a terminal'
     # Header + enters the first empty workspace, creating its initial terminal.
     send('alt+shift+k')
-    click(width - 14 - 15 - 31, 24 + 14 + 18)
+    click(*control_center(log_path, 'Open an empty workspace'))
     wait(lambda: spy()[0] == 6, 'add did not open the next empty workspace')
     shot('new-workspace')
     run('xdotool', 'windowsize', '--sync', wid, '480', '320')
@@ -179,12 +174,7 @@ try:
     time.sleep(2)
     image = shot('focused-last-tabs')
     width = image.width
-    panel_width = min(600, max(360, width * .44))
-    left = width - panel_width + 14
-    tile_width = min(174, max(100, (panel_width - 28 - 40) / 3))
-    tile_height = min(104, max(64, tile_width * .6))
-    arrow_y = 24 + 14 + 36 + 8 + 64 + tile_height / 2
-    click(left + 24, arrow_y)
+    click(*control_center(log_path, 'workspace/1/previous'))
     wait(lambda: spy() == (0, 7, 'Workspaces', '0'), 'left arrow did not focus the previous terminal')
     shot('workspace-tabs-focused-left')
     # Keys move relative to the actual focused tab and cross the viewport edge.

@@ -62,10 +62,6 @@ pub struct UiState {
     pub theme_fetched: bool,
     pub settings_page: SettingsPage,
     pub workspace_edit: usize,
-    /// Last geometry logged for the category selector, so the line is written
-    /// when the layout moves rather than on every frame. The smoke tests click
-    /// a category by name from this line instead of guessing an offset.
-    settings_nav_log: String,
     /// The keybinding row waiting for a chord. The app owns the next key
     /// while this is set; Escape clears it. Held here (not in the app) so the
     /// row can show its own waiting state and the keyboard arbiter can see it.
@@ -144,11 +140,8 @@ pub struct UiState {
     /// Only the selected, completed command is decoded for preview.
     pub history_preview: Option<HistoryPreview>,
     pub history_out: Option<(u64, String)>,
-    /// The graveyard panel (Ctrl+Shift+G): closed tabs that keep running.
-    /// `grave_rows` is the app's snapshot (rebuilt every frame while
-    /// open); `grave_sel` indexes it newest-first; `grave_out` is a
-    /// one-shot (index, action) the app applies after the frame, the same
-    /// contract as `history_out`.
+    /// Last switcher allocation, shared with native keyboard navigation.
+    pub switcher_layout: Option<SwitcherLayout>,
     /// `ws_rows` is the app's snapshot of the ten workspaces (rebuilt every
     /// frame while the panel is open); `ws_sel` indexes it and starts on the
     /// current workspace; `ws_out` is the index the app switches to after the
@@ -162,6 +155,9 @@ pub struct UiState {
     pub ws_populated_only: bool,
     pub ws_collapsed: Option<usize>,
     pub ws_visible_tabs: Vec<usize>,
+    /// The graveyard panel (Ctrl+Shift+G): closed tabs that keep running.
+    /// Rows are the app's snapshot, newest-first. Output is a one-shot
+    /// (selected index, action) applied after the frame.
     pub grave_rows: Vec<GraveRow>,
     /// Stable window id, active title, and total live tab count, newest first.
     pub grave_windows: Vec<(usize, String, usize)>,
@@ -397,9 +393,12 @@ pub fn ctx_menu(ui: &egui::Ui, st: &mut UiState, cfg: &crate::config::Config) {
     let colors = TermStyle::new(ui, ui.visuals().text_color(), ui.visuals().error_fg_color);
     let mut out: Option<Option<String>> = None;
     let mut area = egui::Rect::NOTHING;
+    let frame = colors.menu_frame();
+    let bounds = ctx.content_rect().shrink(12.0);
+    let available = (bounds.size() - frame.total_margin().sum()).max(egui::Vec2::ZERO);
     egui::Window::new("ctx_menu")
         .id(egui::Id::unique("ctx_menu_box"))
-        .frame(colors.menu_frame())
+        .frame(frame)
         .fade_in(false)
         .fade_out(false)
         .title_bar(false)
@@ -407,16 +406,21 @@ pub fn ctx_menu(ui: &egui::Ui, st: &mut UiState, cfg: &crate::config::Config) {
         .resizable(false)
         .fixed_pos(pos)
         .constrain(true)
+        .constrain_to(bounds)
+        .min_size(egui::Vec2::ZERO)
+        .max_size(bounds.size())
         .show(&ctx, |ui| {
-            ui.set_width(300.0_f32.min((ctx.content_rect().width() - 24.0).max(80.0)));
+            ui.set_width(300.0_f32.min(available.x));
             colors.menu_contents(ui, |ui| {
-                egui::ScrollArea::vertical().max_height((ctx.content_rect().height() - 28.0).max(32.0)).show(ui, |ui| {
+                egui::ScrollArea::vertical().max_height(available.y).show(ui, |ui| {
                     for (i, (label, action, enabled)) in st.menu_items.iter().enumerate() {
                         if st.menu_seps.contains(&i) { crate::ui_style::menu_separator(ui, &colors); }
                         let shortcut = cfg.bindings.iter().find(|(name, _)| name == action)
                             .map(|(_, keys)| keys.iter().map(|b| b.label()).collect::<Vec<_>>().join(" / "))
                             .unwrap_or_default();
-                        if crate::ui_style::menu_item(ui, label, &shortcut, None, *enabled, &colors).clicked() {
+                        let response = crate::ui_style::menu_item(ui, label, &shortcut, None, *enabled, &colors);
+                        crate::ui_style::record_control(ui, format!("menu/{action}"), response.rect);
+                        if response.clicked() {
                             out = Some(Some(action.clone()));
                         }
                     }
@@ -447,14 +451,21 @@ pub fn ctx_menu(ui: &egui::Ui, st: &mut UiState, cfg: &crate::config::Config) {
 pub fn app_info(ui: &egui::Ui, st: &mut UiState, cfg: &crate::config::Config) {
     let Some(page) = st.info_page else { return; };
     let colors = TermStyle::new(ui, ui.visuals().text_color(), ui.visuals().error_fg_color);
-    let response = egui::Modal::new(egui::Id::unique("app_info")).frame(colors.menu_frame()).show(ui.ctx(), |ui| {
+    let frame = colors.menu_frame();
+    let available = (ui.ctx().content_rect().shrink(12.0).size() - frame.total_margin().sum()).max(egui::Vec2::ZERO);
+    let response = egui::Modal::new(egui::Id::unique("app_info")).frame(frame).show(ui.ctx(), |ui| {
         colors.apply_controls(ui);
-        ui.set_width((ui.ctx().content_rect().width() - 48.0).clamp(100.0, 560.0));
+        ui.set_width(available.x.min(560.0));
+        let footer = crate::ui_style::measure_section(ui, "info_footer", ui.available_width(), |ui| {
+            app_info_footer(ui);
+        });
         ui.heading(if page == InfoPage::Shortcuts { "Keyboard shortcuts" } else { "About mypixels" });
         ui.separator();
         if page == InfoPage::Shortcuts {
             ui.label("Your current keybindings");
-            egui::ScrollArea::both().max_height((ui.ctx().content_rect().height() - 160.0).max(60.0)).show(ui, |ui| {
+            let consumed = ui.cursor().top() - ui.max_rect().top();
+            let body_height = (available.y - consumed - footer.y - ui.spacing().item_spacing.y).max(0.0);
+            egui::ScrollArea::both().max_height(body_height).show(ui, |ui| {
                 egui::Grid::new("shortcut_reference").striped(true).spacing([24.0, 8.0]).show(ui, |ui| {
                     for (action, bindings) in &cfg.bindings {
                         if bindings.is_empty() { continue; }
@@ -468,14 +479,20 @@ pub fn app_info(ui: &egui::Ui, st: &mut UiState, cfg: &crate::config::Config) {
             ui.label(format!("mypixels {}", env!("CARGO_PKG_VERSION")));
             ui.label("A compact, GPU-rendered terminal emulator.");
         }
-        ui.separator();
-        ui.button("Close").clicked()
+        app_info_footer(ui)
     });
     if response.inner || response.should_close() {
         st.info_page = None;
         release_focus(ui.ctx());
         ui.ctx().request_repaint();
     }
+}
+
+fn app_info_footer(ui: &mut egui::Ui) -> bool {
+    ui.separator();
+    let response = ui.button("Close");
+    crate::ui_style::record_control(ui, "info/close", response.rect);
+    response.clicked()
 }
 
 /// The window picker for "send tab to window": one small frameless list,
@@ -561,12 +578,13 @@ pub fn history_panel(ui: &mut egui::Ui, st: &mut UiState, ok: egui::Color32, err
         .constrain(false)
         .show(ui.ctx(), |ui| {
             ui.set_max_size(host.size());
-            egui::Frame::new().fill(bg).inner_margin(18.0).show(ui, |ui| {
-                ui.set_width((host.width() - 36.0).max(0.0));
-                ui.set_min_height((host.height() - 36.0).max(0.0));
+            let frame = egui::Frame::new().fill(bg).inner_margin(18.0);
+            frame.show(ui, |ui| {
+                let inner = (host.size() - frame.total_margin().sum()).max(egui::Vec2::ZERO);
+                ui.set_width(inner.x);
+                ui.set_min_height(inner.y);
                 ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
-                let edge = ui.max_rect().left() - 18.0;
-                ui.painter().vline(edge, host.y_range(), egui::Stroke::new(1.0, border));
+                ui.painter().vline(host.left(), host.y_range(), egui::Stroke::new(1.0, border));
                 let (header, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), egui::Sense::hover());
                 draw_icon(
                     ui.painter(),
@@ -626,6 +644,7 @@ pub fn history_panel(ui: &mut egui::Ui, st: &mut UiState, ok: egui::Color32, err
                     (HistoryFilter::Error, "Error", Some(Icon::Error), 82.0),
                 ] {
                     let rect = egui::Rect::from_min_size(egui::pos2(x, filters.top()), egui::vec2(width, 34.0));
+                    crate::ui_style::record_control(ui, format!("history/filter/{label}"), rect);
                     let response = ui.interact(rect, ui.scope_id().with(label), egui::Sense::click());
                     response.widget_info(|| {
                         egui::WidgetInfo::selected(egui::Role::RadioButton, true, st.history_filter == filter, label)
@@ -688,7 +707,9 @@ pub fn history_panel(ui: &mut egui::Ui, st: &mut UiState, ok: egui::Color32, err
                 ui.add_space(18.0);
                 // The list scrolls independently; on short windows the outer
                 // scroll area keeps every details action reachable as well.
-                let list_height = (ui.available_height() - 550.0).clamp(76.0, 274.0);
+                // The panel allocates a share of its body to the command list;
+                // details own their natural height and the output takes the rest.
+                let list_height = (ui.available_height() / 3.0).clamp(76.0, 274.0);
                 let body_bottom = ui.max_rect().bottom();
                 egui::ScrollArea::vertical().auto_shrink([false, false]).id_salt("history_body").show(ui, |ui| {
                     egui::ScrollArea::vertical()
@@ -719,8 +740,8 @@ pub fn history_panel(ui: &mut egui::Ui, st: &mut UiState, ok: egui::Color32, err
                                 ui.add_space(14.0);
                             }
                             let seq_width =
-                                rows.iter().map(|r| r.seq.to_string().len()).max().unwrap_or(2).max(2) as f32 * 8.5
-                                    + 12.0;
+                                rows.iter().map(|r| text_width(ui, &format!("#{}", r.seq), 14.0))
+                                    .fold(0.0_f32, f32::max) + 12.0;
                             for index in 0..rows.len() {
                                 let row = rows[if st.history_oldest_first { rows.len() - 1 - index } else { index }];
                                 let (rect, _) = ui
@@ -820,16 +841,19 @@ pub fn history_panel(ui: &mut egui::Ui, st: &mut UiState, ok: egui::Color32, err
 }
 
 fn history_output_preview(ui: &mut egui::Ui, row: &HistoryRow, preview: Option<&HistoryPreview>, c: &TermStyle, height: f32) {
-    egui::Frame::new()
+    let frame = egui::Frame::new()
         .fill(c.card)
         .stroke(egui::Stroke::new(1.0, c.border))
         .corner_radius(9.0)
-        .inner_margin(12.0)
-        .show(ui, |ui| {
+        .inner_margin(12.0);
+    let inner_height = (height - frame.total_margin().sum().y).max(0.0);
+    frame.show(ui, |ui| {
+            ui.set_max_height(inner_height);
             ui.set_min_width(ui.available_width());
             ui.label(egui::RichText::new("Output preview").size(14.0).strong().color(c.fg));
             ui.add_space(8.0);
-            let height = (height - 50.0).max(40.0);
+            let height = (inner_height - ui.min_size().y).max(0.0);
+            ui.set_min_height(inner_height);
             let preview = preview.filter(|p| p.seq == row.seq);
             let message = if row.alt_seen {
                 Some("Full-screen program; output was not captured.")
@@ -868,104 +892,50 @@ fn history_output_preview(ui: &mut egui::Ui, row: &HistoryRow, preview: Option<&
 }
 
 fn history_details(ui: &mut egui::Ui, row: &HistoryRow, c: &TermStyle) -> Option<&'static str> {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 368.0), egui::Sense::hover());
-    ui.painter().rect(rect, 9.0, c.card, egui::Stroke::new(1.0, c.border), egui::StrokeKind::Inside);
-    let left = rect.left() + 13.0;
-    let title = egui::Rect::from_min_max(
-        egui::pos2(left, rect.top() + 6.0),
-        egui::pos2(rect.right() - 12.0, rect.top() + 46.0),
-    );
-    text(
-        ui,
-        title,
-        &format!("#{}  {}", row.seq, row.command_label()),
-        c.fg,
-        15.0,
-        true,
-    );
-    ui.interact(title, ui.scope_id().with("history_title"), egui::Sense::hover()).on_hover_text(&row.cmd);
-    let status = if !row.done {
-        "running".to_string()
-    } else {
-        match row.exit {
-            Some(0) => "success (exit 0)".to_string(),
-            Some(e) => format!("failed (exit {e})"),
-            None => "finished (no status)".to_string(),
-        }
-    };
-    let output = if row.alt_seen { "full-screen program".to_string() } else { format!("{} lines", row.lines) };
-    for (i, (label, value)) in [
-        ("Status", status.as_str()),
-        ("Duration", if row.duration.is_empty() { "—" } else { &row.duration }),
-        ("Output", output.as_str()),
-        ("Time", row.time.as_str()),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let y = rect.top() + 56.0 + i as f32 * 26.0;
-        let line = egui::Rect::from_min_size(egui::pos2(left, y), egui::vec2(rect.width() - 26.0, 26.0));
-        text(ui, line.with_max_x(left + 100.0), label, c.muted, 14.0, false);
-        let value_x = left + 103.0;
-        if i == 0 {
-            draw_icon(
-                ui.painter(),
-                if !row.done {
-                    Icon::Clock
-                } else if row.exit.is_some_and(|e| e != 0) {
-                    Icon::Error
-                } else {
-                    Icon::Check
-                },
-                egui::pos2(value_x + 6.0, line.center().y),
-                c.status(row.done, row.exit),
-            );
-        }
-        text(ui, line.with_min_x(value_x + if i == 0 { 22.0 } else { 0.0 }), value, c.fg, 14.0, false);
-    }
-    let divider = rect.top() + 170.0;
-    ui.painter().hline(rect.x_range(), divider, egui::Stroke::new(1.0, c.border));
-    text(
-        ui,
-        egui::Rect::from_min_size(egui::pos2(left, divider + 8.0), egui::vec2(rect.width() - 26.0, 26.0)),
-        "Actions",
-        c.fg,
-        15.0,
-        true,
-    );
     let mut action = None;
-    for (i, (label, name, icon, enabled)) in [
-        ("Copy output", "copy", Icon::Copy, row.done && !row.alt_seen),
-        ("Pipe output…", "pipe", Icon::Pipe, false),
-        ("Re-run", "rerun", Icon::Rerun, row.done && !row.cmd.is_empty()),
-        ("View in scrollback", "view", Icon::View, true),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let button = egui::Rect::from_min_size(
-            egui::pos2(rect.left() + 7.0, divider + 42.0 + i as f32 * 37.0),
-            egui::vec2(rect.width() - 14.0, 34.0),
-        );
-        let response = crate::ui_style::action_row(ui, button,
-            ui.scope_id().with(("history_action", name)), label, "", Some(icon), enabled, c);
-        if response.clicked() && enabled {
-            action = Some(name);
-        }
-        if !enabled {
-            response.on_hover_text(if name == "pipe" {
-                "Piping output is not available yet"
-            } else if !row.done {
-                "Command is still running"
-            } else if name == "rerun" {
-                "No command line to re-run"
-            } else {
-                "No captured output available"
+    egui::Frame::new().fill(c.card).stroke(egui::Stroke::new(1.0, c.border))
+        .corner_radius(9.0).inner_margin(12.0).show(ui, |ui| {
+            ui.add(egui::Label::new(egui::RichText::new(format!("#{}  {}", row.seq, row.command_label()))
+                .monospace().size(15.0).strong().color(c.fg)).truncate()).on_hover_text(&row.cmd);
+            let status = if !row.done { "running".to_owned() } else {
+                match row.exit { Some(0) => "success (exit 0)".to_owned(),
+                    Some(exit) => format!("failed (exit {exit})"), None => "finished (no status)".to_owned() }
+            };
+            let output = if row.alt_seen { "full-screen program".to_owned() } else { format!("{} lines", row.lines) };
+            egui::Grid::new("history_metadata").num_columns(2).show(ui, |ui| {
+                for (label, value) in [("Status", status.as_str()), ("Duration", if row.duration.is_empty() { "—" } else { &row.duration }),
+                    ("Output", output.as_str()), ("Time", row.time.as_str())] {
+                    ui.label(egui::RichText::new(label).color(c.muted));
+                    ui.horizontal(|ui| {
+                        if label == "Status" {
+                            let (rect, _) = ui.allocate_exact_size(egui::vec2(16.0, 18.0), egui::Sense::hover());
+                            draw_icon(ui.painter(), if !row.done { Icon::Clock } else if row.exit.is_some_and(|exit| exit != 0) {
+                                Icon::Error
+                            } else { Icon::Check }, rect.center(), c.status(row.done, row.exit));
+                        }
+                        ui.add(egui::Label::new(egui::RichText::new(value).color(c.fg)).truncate());
+                    });
+                    ui.end_row();
+                }
             });
-        } else {
-            response.on_hover_cursor(egui::CursorIcon::PointingHand);
-        }
-    }
+            ui.separator();
+            ui.label(egui::RichText::new("Actions").strong().color(c.fg));
+            for (label, name, glyph, enabled) in [
+                ("Copy output", "copy", Icon::Copy, row.done && !row.alt_seen),
+                ("Pipe output…", "pipe", Icon::Pipe, false),
+                ("Re-run", "rerun", Icon::Rerun, row.done && !row.cmd.is_empty()),
+                ("View in scrollback", "view", Icon::View, true),
+            ] {
+                let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 34.0), egui::Sense::hover());
+                crate::ui_style::record_control(ui, format!("history/{name}"), rect);
+                let response = action_row(ui, rect, ui.scope_id().with(("history_action", name)),
+                    label, "", Some(glyph), enabled, c);
+                if response.clicked() && enabled { action = Some(name); }
+                if !enabled { response.on_hover_text(if name == "pipe" { "Piping output is not available yet" }
+                    else if !row.done { "Command is still running" }
+                    else if name == "rerun" { "No command line to re-run" } else { "No captured output available" }); }
+            }
+        });
     action
 }
 
@@ -993,7 +963,7 @@ pub fn graveyard_panel(
         return;
     }
     let colors = TermStyle::new(ui, _ok, _err);
-    let TermStyle { bg, fg, muted, border, accent, card, .. } = colors;
+    let TermStyle { bg, fg, muted, border, .. } = colors;
     // List navigation lives in the app's keyboard, which routes to egui
     // while this panel is the only surface.
     // Navigation is opt-in: without a selection (no click, no arrow key)
@@ -1036,12 +1006,13 @@ pub fn graveyard_panel(
         .constrain(false)
         .show(ui.ctx(), |ui| {
             ui.set_max_size(host.size());
-            egui::Frame::new().fill(bg).inner_margin(18.0).show(ui, |ui| {
-                ui.set_width((host.width() - 36.0).max(0.0));
-                ui.set_min_height((host.height() - 36.0).max(0.0));
+            let frame = egui::Frame::new().fill(bg).inner_margin(18.0);
+            frame.show(ui, |ui| {
+                let inner = (host.size() - frame.total_margin().sum()).max(egui::Vec2::ZERO);
+                ui.set_width(inner.x);
+                ui.set_min_height(inner.y);
                 ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
-                let edge = ui.max_rect().left() - 18.0;
-                ui.painter().vline(edge, host.y_range(), egui::Stroke::new(1.0, border));
+                ui.painter().vline(host.left(), host.y_range(), egui::Stroke::new(1.0, border));
                 let (header, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), egui::Sense::hover());
                 draw_icon(
                     ui.painter(),
@@ -1078,10 +1049,19 @@ pub fn graveyard_panel(
                 if let Some(sel) = st.grave_sel.filter(|s| *s >= count) {
                     st.grave_sel = Some(sel.min(count.saturating_sub(1)));
                 }
+                let selected_row = st.grave_sel.and_then(|index| st.grave_rows.get(index)).cloned();
+                let (body, action) = crate::ui_style::bottom_section(ui, "graveyard_details", |ui| {
+                    selected_row.as_ref().and_then(|row| graveyard_details(ui, row, &colors))
+                });
+                if let Some(action) = action {
+                    st.grave_out = st.grave_sel.map(|index| (index, action.to_owned()));
+                }
+                let mut body_ui = ui.new_child(egui::UiBuilder::new().id_salt("graveyard_body").max_rect(body));
+                body_ui.set_clip_rect(ui.clip_rect().intersect(body));
                 egui::ScrollArea::vertical()
                     .id_salt("graveyard_list")
                     .auto_shrink([false, false])
-                    .show(ui, |ui| {
+                    .show(&mut body_ui, |ui| {
                         if !st.grave_windows.is_empty() {
                             ui.label(egui::RichText::new("Closed windows").color(fg));
                             for (id, title, tabs) in &st.grave_windows {
@@ -1188,46 +1168,34 @@ pub fn graveyard_panel(
                             ui.add_space(8.0);
                         }
                     });
-                if let Some(index) = st.grave_sel.filter(|i| *i < count) {
-                    let row = &st.grave_rows[index];
-                    ui.add_space(14.0);
-                    let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 210.0), egui::Sense::hover());
-                    ui.painter().rect(rect, 9.0, card, egui::Stroke::new(1.0, border), egui::StrokeKind::Inside);
-                    let left = rect.left() + 13.0;
-                    text(ui, egui::Rect::from_min_max(
-                        egui::pos2(left, rect.top() + 8.0),
-                        egui::pos2(rect.right() - 12.0, rect.top() + 30.0),
-                    ), &row.title, fg, 15.0, true);
-                    for (i, (label, value)) in [
-                        ("Buried", row.buried.as_str()),
-                        ("Path", if row.cwd.is_empty() { "\u{2014}" } else { &row.cwd }),
-                    ].into_iter().enumerate()
-                    {
-                        let y = rect.top() + 42.0 + i as f32 * 26.0;
-                        let line = egui::Rect::from_min_size(egui::pos2(left, y), egui::vec2(rect.width() - 26.0, 26.0));
-                        text(ui, line.with_max_x(left + 80.0), label, muted, 14.0, false);
-                        text(ui, line.with_min_x(left + 84.0), value, fg, 14.0, false);
-                    }
-                    ui.painter().hline(rect.x_range(), rect.top() + 100.0, egui::Stroke::new(1.0, border));
-                    for (i, (label, name, icon, color)) in [
-                        ("Raise tab", "raise", Icon::Rerun, accent),
-                        ("Kill for good", "kill", Icon::Close, muted),
-                    ].into_iter().enumerate()
-                    {
-                        let button = egui::Rect::from_min_size(
-                            egui::pos2(rect.left() + 7.0, rect.top() + 112.0 + i as f32 * 46.0),
-                            egui::vec2(rect.width() - 14.0, 40.0),
-                        );
-                        let response = action_row(ui, button, ui.scope_id().with(("grave_action", name)), label, "", Some(icon), true, &colors);
-                        if response.clicked() {
-                            st.grave_out = Some((index, name.to_string()));
-                        }
-                        let _ = color;
-                        response.on_hover_cursor(egui::CursorIcon::PointingHand);
-                    }
-                }
+
             });
         });
+}
+
+fn graveyard_details(ui: &mut egui::Ui, row: &GraveRow, colors: &TermStyle) -> Option<&'static str> {
+    let mut action = None;
+    ui.add_space(14.0);
+    egui::Frame::new().fill(colors.card).stroke(egui::Stroke::new(1.0, colors.border))
+        .corner_radius(9.0).inner_margin(12.0).show(ui, |ui| {
+            ui.label(egui::RichText::new(&row.title).strong().color(colors.fg));
+            egui::Grid::new("buried_details").num_columns(2).show(ui, |ui| {
+                for (label, value) in [("Buried", row.buried.as_str()), ("Path", if row.cwd.is_empty() { "—" } else { &row.cwd })] {
+                    ui.label(egui::RichText::new(label).color(colors.muted));
+                    ui.add(egui::Label::new(value).truncate());
+                    ui.end_row();
+                }
+            });
+            ui.separator();
+            for (label, name, glyph) in [("Raise tab", "raise", Icon::Rerun), ("Kill for good", "kill", Icon::Close)] {
+                let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 40.0), egui::Sense::hover());
+                crate::ui_style::record_control(ui, format!("graveyard/details/{name}"), rect);
+                if action_row(ui, rect, ui.scope_id().with(name), label, "", Some(glyph), true, colors).clicked() {
+                    action = Some(name);
+                }
+            }
+        });
+    action
 }
 
 /// Filter once for both keyboard navigation and the visible cards.
@@ -1277,9 +1245,11 @@ pub fn workspaces_panel(
         .movable(false).constrain(false)
         .show(&ctx, |ui| {
             ui.set_max_size(host.size());
-            egui::Frame::new().fill(bg).inner_margin(14.0).show(ui, |ui| {
-                ui.set_width((host.width() - 28.0).max(0.0));
-                ui.set_min_height((host.height() - 28.0).max(0.0));
+            let frame = egui::Frame::new().fill(bg).inner_margin(14.0);
+            frame.show(ui, |ui| {
+                let inner = (host.size() - frame.total_margin().sum()).max(egui::Vec2::ZERO);
+                ui.set_width(inner.x);
+                ui.set_min_height(inner.y);
                 colors.apply_controls(ui);
                 ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
                 ui.painter().vline(host.left(), host.y_range(), egui::Stroke::new(1.0, border));
@@ -1359,9 +1329,16 @@ pub fn workspaces_panel(
                     data.insert_temp(id, value);
                     nav || changed
                 });
-                let footer_h = 25.0;
+                let (body, ()) = crate::ui_style::bottom_section(ui, "workspace_footer", |ui| {
+                    ui.add_space(7.0);
+                    let (hint, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 18.0), egui::Sense::hover());
+                    text(ui, hint, "↑↓ workspace · ←→ tab · Enter go · Esc close", muted, 10.0, false);
+                });
+                let mut list = ui.new_child(egui::UiBuilder::new().id_salt("workspace_body").max_rect(body));
+                list.set_clip_rect(ui.clip_rect().intersect(body));
+                let ui = &mut list;
                 egui::ScrollArea::vertical().id_salt("workspaces_list")
-                    .auto_shrink([false, false]).max_height((ui.available_height() - footer_h).max(0.0))
+                    .auto_shrink([false, false]).max_height(ui.available_height())
                     .show(ui, |ui| {
                         if visible.is_empty() {
                             ui.add_space(32.0);
@@ -1372,12 +1349,12 @@ pub fn workspaces_panel(
                             let selected = st.ws_sel == Some(index);
                             let color = colors_ws.get(index).copied().unwrap_or(accent);
                             let expanded = selected && row.count > 0 && st.ws_collapsed != Some(index);
-                            let tile_w = ((ui.available_width() - 40.0) / 3.0).clamp(100.0, 174.0);
-                            let tile_h = (tile_w * 0.60).clamp(64.0, 104.0);
-                            let height = if expanded { 68.0 + tile_h + 31.0 } else { 68.0 };
+                            let carousel = WorkspaceCarouselLayout::new(ui.available_width() - 24.0, row.tabs.len(), true, 40.0);
+                            let height = 68.0 + if expanded { carousel.height + 8.0 } else { 0.0 };
                             let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), height), egui::Sense::hover());
                             let heading = rect.with_max_y(rect.top() + 66.0);
                             let response = ui.interact(heading.with_max_x(rect.right() - 29.0), ui.scope_id().with(("ws_row", index)), egui::Sense::click());
+                            crate::ui_style::record_control(ui, format!("workspace/{}", index + 1), heading);
                             let disclosure = ui.interact(heading.with_min_x(rect.right() - 29.0),
                                 ui.scope_id().with(("ws_disclosure", index)), egui::Sense::click());
                             response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, format!("Workspace {}, {} tabs, {}", index + 1, row.count, row.genre)));
@@ -1408,9 +1385,8 @@ pub fn workspaces_panel(
                             if !expanded {
                                 let space = badge.left() - compact_start - 10.0;
                                 if space >= 54.0 {
-                                    let w = ((space - 34.0) / 2.0).clamp(32.0, 86.0);
                                     let strip = egui::Rect::from_min_size(egui::pos2(compact_start, heading.center().y - 20.0), egui::vec2(space, 40.0));
-                                    if let Some(id) = workspace_tab_strip(ui, strip, row, egui::vec2(w, 40.0), false, color, &colors, &mut st.ws_visible_tabs) {
+                                    if let Some(id) = workspace_tab_strip(ui, strip, row, false, color, &colors, &mut st.ws_visible_tabs) {
                                         st.ws_tab_out = Some((index, id));
                                         release_focus(&ctx);
                                     }
@@ -1434,8 +1410,8 @@ pub fn workspaces_panel(
                                 if row.genre.is_empty() { "No genre" } else { &row.genre }, row.title, row.shortcut))
                                 .on_hover_cursor(egui::CursorIcon::PointingHand);
                             if expanded {
-                                let preview_rect = egui::Rect::from_min_max(rect.min + egui::vec2(12.0, 64.0), rect.max - egui::vec2(12.0, 8.0));
-                                if let Some(id) = workspace_tab_strip(ui, preview_rect, row, egui::vec2(tile_w, tile_h), true, color, &colors, &mut st.ws_visible_tabs) {
+                                let preview_rect = egui::Rect::from_min_max(rect.min + egui::vec2(12.0, 68.0), rect.max - egui::vec2(12.0, 8.0));
+                                if let Some(id) = workspace_tab_strip(ui, preview_rect, row, true, color, &colors, &mut st.ws_visible_tabs) {
                                     st.ws_tab_out = Some((index, id));
                                     release_focus(&ctx);
                                 }
@@ -1444,9 +1420,6 @@ pub fn workspaces_panel(
                             ui.add_space(8.0);
                         }
                     });
-                ui.add_space(7.0);
-                let (hint, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 18.0), egui::Sense::hover());
-                text(ui, hint, "↑↓ workspace · ←→ tab · Enter go · Esc close", muted, 10.0, false);
             });
         });
     // The panel is a live view, including terminals parked in other workspaces.
@@ -1461,6 +1434,30 @@ struct WorkspaceStripState {
     last_frame: Option<u64>,
 }
 
+struct WorkspaceCarouselLayout {
+    tile: egui::Vec2,
+    gap: f32,
+    gutter: f32,
+    height: f32,
+}
+
+impl WorkspaceCarouselLayout {
+    fn new(width: f32, count: usize, expanded: bool, compact_height: f32) -> Self {
+        let gap = if expanded { 8.0 } else { 6.0 };
+        let desired_tiles = if expanded { 3.0 } else { 2.0 };
+        let (minimum, maximum) = if expanded { (100.0, 174.0) } else { (32.0, 86.0) };
+        let tile_width = |space: f32| ((space - gap * (desired_tiles - 1.0)) / desired_tiles)
+            .clamp(minimum, maximum).min(space.max(1.0));
+        let initial = tile_width(width);
+        let overflow = count as f32 * (initial + gap) - gap > width + 0.5;
+        let gutter = if !overflow { 0.0 } else if expanded { 24.0 } else if width < 70.0 { 10.0 } else { 14.0 };
+        let tile_width = tile_width(width - gutter * 2.0);
+        let tile_height = if expanded { (tile_width * 0.60).clamp(64.0, 104.0) } else { compact_height };
+        Self { tile: egui::vec2(tile_width, tile_height), gap, gutter,
+            height: tile_height + if expanded { 23.0 } else { 0.0 } }
+    }
+}
+
 /// A workspace keeps its own scroll position in each presentation. Follow its
 /// focused terminal when focus/layout changes or the view opens; otherwise let
 /// the user browse freely with the wheel or trackpad. Focus changes only move
@@ -1469,17 +1466,18 @@ fn workspace_tab_strip(
     ui: &mut egui::Ui,
     rect: egui::Rect,
     row: &WsRow,
-    tile: egui::Vec2,
     expanded: bool,
     color: egui::Color32,
     colors: &TermStyle,
     visible_tabs: &mut Vec<usize>,
 ) -> Option<usize> {
-    let gap = if expanded { 8.0 } else { 6.0 };
+    let layout = WorkspaceCarouselLayout::new(rect.width(), row.tabs.len(), expanded, rect.height());
+    let tile = layout.tile;
+    let gap = layout.gap;
+    let gutter = layout.gutter;
     let pitch = tile.x + gap;
     let content_width = row.tabs.len() as f32 * pitch - gap;
-    let overflow = content_width > rect.width() + 0.5;
-    let gutter = if !overflow { 0.0 } else if expanded { 24.0 } else if rect.width() < 70.0 { 10.0 } else { 14.0 };
+    let overflow = gutter > 0.0;
     let viewport = rect.shrink2(egui::vec2(gutter, 0.0));
     let id = egui::Id::unique("workspace_tab_strip").with((row.index, expanded));
     let focus = row.tabs.iter().enumerate().find(|(_, tab)| tab.selected).map(|(index, tab)| (tab.id, index));
@@ -1517,6 +1515,7 @@ fn workspace_tab_strip(
                         egui::style::ScrollAnimation::duration(ui.ctx().global_style().animation_time));
                 }
                 if ui.is_rect_visible(well) { visible_tabs.push(tab.id); }
+                crate::ui_style::record_control(ui, format!("workspace/{}/tab/{}", row.index + 1, number + 1), well);
                 workspace_preview(ui, well, tab, colors);
                 if tab.selected || response.hovered() {
                     ui.painter().rect_stroke(well, 7.0, egui::Stroke::new(1.5, color), egui::StrokeKind::Inside);
@@ -1542,6 +1541,7 @@ fn workspace_tab_strip(
             let response = ui.interact(button, id.with(left), egui::Sense::click());
             let label = format!("Focus {} tab in workspace {}", if left { "Previous" } else { "Next" }, row.index + 1);
             response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
+            crate::ui_style::record_control(ui, format!("workspace/{}/{}", row.index + 1, if left { "previous" } else { "next" }), button);
             if response.hovered() { ui.painter().rect_filled(button, 5.0, colors.card); }
             draw_icon(ui.painter(), if left { Icon::ChevronLeft } else { Icon::ChevronRight }, button.center(),
                 if response.hovered() { color } else { colors.muted });
@@ -1702,15 +1702,17 @@ pub fn confirm_box(ui: &egui::Ui, st: &mut UiState) {
     let c = TermStyle::new(ui, egui::Color32::from_rgb(59, 193, 126),
         egui::Color32::from_rgb(239, 97, 109));
     let seed = std::mem::take(&mut st.confirm_seed);
-    let width = (ctx.content_rect().width() - 48.0).clamp(220.0, 640.0);
+    let frame = egui::Frame::new().fill(c.bg)
+        .stroke(egui::Stroke::new(1.0, c.bg.lerp_to_gamma(c.fg, 0.32)))
+        .corner_radius(12.0).inner_margin(24.0);
+    let available = ctx.content_rect().shrink(12.0).size() - frame.total_margin().sum();
+    let width = available.x.min(640.0).max(1.0);
     let mut out = None;
     let response = egui::Modal::new(egui::Id::unique("confirm_box"))
-        .backdrop_color(egui::Color32::from_black_alpha(115))
-        .frame(egui::Frame::new().fill(c.bg)
-            .stroke(egui::Stroke::new(1.0, c.bg.lerp_to_gamma(c.fg, 0.32)))
-            .corner_radius(12.0).inner_margin(24.0))
+        .backdrop_color(egui::Color32::from_black_alpha(115)).frame(frame)
         .show(ctx, |ui| {
             ui.set_width(width);
+            ui.spacing_mut().item_spacing.y = 0.0;
             c.apply_controls(ui);
             // Proportional typography matches the reference's dialog, while
             // the terminal and the rest of the UI retain their own font.
@@ -1735,11 +1737,12 @@ pub fn confirm_box(ui: &egui::Ui, st: &mut UiState) {
                 out = Some(CloseChoice::Cancel);
             }
             ui.add_space(10.0);
-            let footer_height = if width < 500.0 {
-                if st.confirm.retainer == WindowRetainer::None { 88.0 } else { 136.0 }
-            } else { 40.0 };
+            let footer = crate::ui_style::measure_section(ui, "close_footer", width, |ui| {
+                close_footer(ui, &st.confirm, remaining, false, &c);
+            });
+            let body_height = (available.y - ui.min_size().y - footer.y).max(0.0);
             egui::ScrollArea::vertical().id_salt("close_dialog_details")
-                .max_height((ctx.content_rect().height() - header.height() - footer_height - 110.0).max(64.0))
+                .max_height(body_height)
                 .auto_shrink([false, true]).show(ui, |ui| {
                     ui.label(egui::RichText::new(if danger && st.confirm.retainer == WindowRetainer::None && st.confirm.retained_tabs > 0 {
                         format!("This will end the session, terminating this window and {} previously closed terminal(s). Workspaces, running programs and terminal contents cannot be restored.", st.confirm.retained_tabs)
@@ -1771,61 +1774,83 @@ pub fn confirm_box(ui: &egui::Ui, st: &mut UiState) {
                         }.into(), c.muted);
                     }
                 });
-            ui.add_space(18.0);
-            ui.separator();
-            ui.add_space(10.0);
-            // Explicit footer geometry keeps the primary action at the right
-            // edge without allowing button widths to expand the centered card.
-            let compact = width < 500.0;
-            let has_back = st.confirm.retainer != WindowRetainer::None;
-            let primary_w: f32 = if danger { 220.0 } else { 185.0 };
-            let height = if compact { if has_back { 136.0 } else { 88.0 } } else { 40.0 };
-            let (footer, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
-            let primary = egui::Rect::from_min_size(
-                if compact { footer.min + egui::vec2(0.0, 48.0) }
-                else { egui::pos2(footer.right() - primary_w, footer.top()) },
-                egui::vec2(if compact { width } else { primary_w }, 40.0));
-            let cancel_rect = egui::Rect::from_min_size(
-                if compact { footer.min } else { egui::pos2(primary.left() - 102.0, footer.top()) },
-                egui::vec2(if compact { width } else { 90.0 }, 40.0));
-            let cancel = ui.put(cancel_rect, egui::Button::new("Cancel"));
-            if seed { cancel.request_focus(); }
-            if cancel.clicked() { out = Some(CloseChoice::Cancel); }
-            if danger {
-                let label = if remaining > 0.0 { format!("Close permanently ({} s)", remaining.ceil() as u64) }
-                    else { "Close permanently".into() };
-                let red = if remaining > 0.0 { c.bg.lerp_to_gamma(c.err, 0.25) } else { c.err };
-                let clicked = ui.push_id("permanent_close", |ui| {
-                    ui.add_enabled_ui(remaining == 0.0, |ui| {
-                        ui.put(primary, egui::Button::new(egui::RichText::new(label)
-                            .color(if remaining > 0.0 { c.muted } else { egui::Color32::BLACK }))
-                            .fill(red).stroke(egui::Stroke::new(1.0, c.err))).clicked()
-                    }).inner
-                }).inner;
-                if clicked && st.confirm.permanent_ready(now) { out = Some(CloseChoice::Permanent); }
-            } else if ui.push_id("graveyard_close", |ui| ui.put(primary,
-                egui::Button::new(egui::RichText::new("Move to Graveyard").color(egui::Color32::BLACK))
-                    .fill(c.accent))).inner.clicked() {
-                out = Some(CloseChoice::Graveyard);
+            let (choice, back) = close_footer(ui, &st.confirm, remaining, seed, &c);
+            if let Some(choice) = choice {
+                if choice != CloseChoice::Permanent || st.confirm.permanent_ready(now) { out = Some(choice); }
             }
-            if has_back {
-                let rect = if compact {
-                    egui::Rect::from_min_size(footer.min + egui::vec2(0.0, 96.0), egui::vec2(width, 40.0))
-                } else { egui::Rect::from_min_size(footer.min, egui::vec2(165.0, 40.0)) };
-                let label = if danger { "Back to recovery" } else { "Close permanently…" };
-                if ui.put(rect, egui::Button::new(egui::RichText::new(label).color(c.muted)).frame(false)).clicked() {
-                    st.confirm.permanent = !danger;
-                    st.confirm.unlock_at = if danger { None } else { Some(now + CloseDialog::DELAY) };
-                    st.confirm_seed = true;
-                    ctx.request_repaint();
-                }
+            if back {
+                st.confirm.permanent = !danger;
+                st.confirm.unlock_at = if danger { None } else { Some(now + CloseDialog::DELAY) };
+                st.confirm_seed = true;
+                ctx.request_repaint();
             }
+
         });
     if response.should_close() || (out.is_none() && ctx.memory(|m| m.focused()).is_none()
         && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))) {
         out = Some(CloseChoice::Cancel);
     }
     st.confirm_out = out;
+}
+
+fn close_footer(ui: &mut egui::Ui, dialog: &CloseDialog, remaining: f64, seed: bool,
+    colors: &TermStyle) -> (Option<CloseChoice>, bool) {
+    let danger = dialog.danger();
+    let has_back = dialog.retainer != WindowRetainer::None;
+    let primary_label = if !danger { "Move to Graveyard".to_owned() }
+        else if remaining > 0.0 { format!("Close permanently ({} s)", remaining.ceil() as u64) }
+        else { "Close permanently".to_owned() };
+    let back_label = if danger { "Back to recovery" } else { "Close permanently…" };
+    let button_width = |label: &str, minimum: f32| {
+        let galley = egui::WidgetText::from(label).into_galley(ui, Some(egui::TextWrapMode::Extend),
+            f32::INFINITY, egui::TextStyle::Button);
+        (galley.size().x + ui.spacing().button_padding.x * 2.0).max(minimum)
+    };
+    let primary_width = button_width(&primary_label, if danger { 220.0 } else { 185.0 });
+    let cancel_width = button_width("Cancel", 90.0);
+    let back_width = if has_back { button_width(back_label, 165.0) } else { 0.0 };
+    let gap = 12.0;
+    let compact = primary_width + cancel_width + back_width + gap * if has_back { 2.0 } else { 1.0 } > ui.available_width();
+    ui.add_space(18.0);
+    ui.separator();
+    ui.add_space(10.0);
+    ui.spacing_mut().item_spacing = egui::vec2(gap, 8.0);
+    let width = ui.available_width();
+    let mut choice = None;
+    let mut back = false;
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    enum Action { Cancel, Primary, Back }
+    let mut button = |ui: &mut egui::Ui, kind: Action| {
+        let (label, button_width) = match kind { Action::Cancel => ("Cancel", cancel_width),
+            Action::Primary => (primary_label.as_str(), primary_width), Action::Back => (back_label, back_width) };
+        let mut widget = egui::Button::new(egui::RichText::new(label).color(if kind == Action::Primary {
+            if danger && remaining > 0.0 { colors.muted } else { egui::Color32::BLACK }
+        } else if kind == Action::Back { colors.muted } else { colors.fg }));
+        if kind == Action::Primary {
+            widget = widget.fill(if danger { if remaining > 0.0 { colors.bg.lerp_to_gamma(colors.err, 0.25) }
+                else { colors.err } } else { colors.accent });
+            if danger { widget = widget.stroke(egui::Stroke::new(1.0, colors.err)); }
+        } else if kind == Action::Back { widget = widget.frame(false); }
+        let response = ui.push_id(("close_action", kind), |ui| ui.add_enabled_ui(
+            kind != Action::Primary || !danger || remaining == 0.0, |ui| {
+                ui.add(widget.min_size(egui::vec2(if compact { width } else { button_width }, 40.0)))
+            }).inner).inner;
+        crate::ui_style::record_control(ui, format!("close/{}", match kind { Action::Cancel => "cancel", Action::Primary => "primary", Action::Back => "back" }), response.rect);
+        if seed && kind == Action::Cancel { response.request_focus(); }
+        if response.clicked() {
+            match kind { Action::Cancel => choice = Some(CloseChoice::Cancel),
+                Action::Primary => choice = Some(if danger { CloseChoice::Permanent } else { CloseChoice::Graveyard }), Action::Back => back = true }
+        }
+    };
+    if compact {
+        button(ui, Action::Cancel); button(ui, Action::Primary); if has_back { button(ui, Action::Back); }
+    } else {
+        ui.horizontal(|ui| {
+            if has_back { button(ui, Action::Back); }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| { button(ui, Action::Primary); button(ui, Action::Cancel); });
+        });
+    }
+    (choice, back)
 }
 
 /// The font selector popup, opened from one of the two font rows. It works
@@ -2051,38 +2076,80 @@ pub struct SwitcherCard {
 const CARD_GAP: f32 = 14.0;
 const CARD_PAD: f32 = 8.0;
 const CARD_HEADER: f32 = 40.0;
+const CARD_MIN_WIDTH: f32 = 204.0;
 
 /// The switcher's usable panel width.
 fn switcher_panel_w(screen_width: f32) -> f32 {
     (screen_width * 0.84).min(1400.0)
 }
 
-/// Preview dimensions: the terminal frame shrunk by `scale`, capped so one
-/// card still fits the panel. The aspect is the terminal's own, always --
-/// the preview is a scaled picture of the tab, so it can never differ in
-/// shape. The grid reflows around the size (fewer columns, more rows) rather
-/// than squeezing it.
+/// Preferred preview dimensions from the terminal's aspect and configured
+/// scale. The switcher constrains their display size to its grid allocation.
 pub fn thumbnail_size(screen_width: f32, aspect: f32, scale: f32) -> (f32, f32) {
     if aspect <= 0.0 {
         return (0.0, 0.0);
     }
-    let one_card = switcher_panel_w(screen_width) - 36.0 - CARD_PAD * 2.0;
-    let box_w = (screen_width * scale).min(one_card).max(48.0);
+    let box_w = (screen_width * scale).clamp(48.0, screen_width.max(48.0));
     (box_w, box_w / aspect)
 }
 
-/// The card the preview sits in: padding around, never narrower than 204 so
-/// the header and index chip keep their room.
-pub fn switcher_card_width(screen_width: f32, aspect: f32, scale: f32) -> f32 {
-    let (tw, _) = thumbnail_size(screen_width, aspect, scale);
-    (tw + CARD_PAD * 2.0).max(204.0)
+/// Geometry belongs to the switcher. Input consumes the published layout
+/// instead of reconstructing window sizes, preview padding or column counts.
+#[derive(Clone, Debug)]
+pub struct SwitcherLayout {
+    pub surface: egui::Rect,
+    pub columns: usize,
+    card: egui::Vec2,
+    grid_width: f32,
+    viewport_height: f32,
+    rail_width: f32,
 }
 
-/// Columns shared by drawing and arrow-key navigation. The cards pick the
-/// column count, not the other way round: as many as fit the panel.
-pub fn switcher_columns(screen_width: f32, count: usize, card_w: f32) -> usize {
-    let fit = ((switcher_panel_w(screen_width) - 36.0 + CARD_GAP) / (card_w + CARD_GAP)).floor().max(1.0) as usize;
-    fit.min(4).min(count.max(1))
+impl SwitcherLayout {
+    fn measure(ui: &mut egui::Ui, count: usize, requested: egui::Vec2,
+        workspace: Option<usize>, colors: &TermStyle) -> Self {
+        let screen = ui.max_rect().shrink(12.0);
+        let margins = switcher_frame(colors).total_margin().sum();
+        let max_width = switcher_panel_w(ui.max_rect().width()).min(screen.width());
+        let rail_width = workspace.map_or(0.0, |_| (max_width * 0.22).clamp(132.0, 228.0) + 18.0);
+        let grid_available = (max_width - margins.x - rail_width).max(1.0);
+        let aspect = requested.x / requested.y.max(1.0);
+        // Reserve a two-column grid even for a workspace with only one tab.
+        // The grid owns the fit: adding the workspace rail reduces preview
+        // size rather than silently changing the normal layout to one column.
+        let minimum_columns = if grid_available >= CARD_MIN_WIDTH * 2.0 + CARD_GAP { 2 } else { 1 };
+        let card_limit = (grid_available - CARD_GAP * (minimum_columns - 1) as f32) / minimum_columns as f32;
+        let preview_width = requested.x.min((card_limit - CARD_PAD * 2.0).max(1.0)).floor();
+        let card = egui::vec2((preview_width + CARD_PAD * 2.0).max(CARD_MIN_WIDTH).min(card_limit),
+            (preview_width / aspect.max(0.01)).round() + CARD_HEADER + CARD_PAD);
+        let capacity = ((grid_available + CARD_GAP) / (card.x + CARD_GAP)).floor().max(1.0) as usize;
+        let reserved_columns = capacity.min(4).min(count.max(2));
+        let columns = reserved_columns.min(count.max(1));
+        let grid_width = card.x * reserved_columns as f32 + CARD_GAP * reserved_columns.saturating_sub(1) as f32;
+        let width = (grid_width + rail_width + margins.x).max(440.0).min(screen.width());
+        let inner_width = width - margins.x;
+        let header = crate::ui_style::measure_section(ui, "switcher_header", inner_width,
+            |ui| switcher_header(ui, count, workspace, colors));
+        let footer = crate::ui_style::measure_section(ui, "switcher_footer", inner_width,
+            |ui| switcher_footer(ui, colors));
+        let rows = count.div_ceil(columns).max(2);
+        let desired_height = card.y * rows as f32 + CARD_GAP * rows.saturating_sub(1) as f32;
+        let viewport_height = desired_height.min((screen.height() - margins.y - header.y - footer.y).max(0.0));
+        let size = egui::vec2(width, margins.y + header.y + viewport_height + footer.y);
+        Self { surface: egui::Rect::from_center_size(screen.center(), size), columns,
+            card, grid_width, viewport_height, rail_width }
+    }
+
+    pub fn vertical_neighbor(&self, selected: usize, count: usize, up: bool) -> usize {
+        let candidate = if up { selected.checked_sub(self.columns) }
+            else { selected.checked_add(self.columns) };
+        candidate.filter(|&index| index < count).unwrap_or(selected)
+    }
+}
+
+fn switcher_frame(colors: &TermStyle) -> egui::Frame {
+    egui::Frame::new().fill(colors.bg).stroke(egui::Stroke::new(1.0, colors.border))
+        .corner_radius(18.0).inner_margin(18.0)
 }
 
 /// Release egui keyboard focus. A TextEdit that vanishes with its panel or
@@ -2143,6 +2210,8 @@ pub fn switcher_screen(
     // Which workspace these tiles came from, while workspaces are on. `None`
     // leaves the header as it was: with one set of tabs there is nothing to name.
     workspace: Option<usize>,
+    st: &mut UiState,
+    workspace_colors: &[egui::Color32],
     pick: &mut Option<usize>,
 ) {
     if !open || cards.is_empty() {
@@ -2152,15 +2221,17 @@ pub fn switcher_screen(
         TermStyle::new(ui, egui::Color32::from_rgb(104, 239, 145), egui::Color32::from_rgb(245, 115, 126));
     colors.accent = accent;
     let screen = ui.max_rect();
-    let card_size = egui::vec2((preview.x + CARD_PAD * 2.0).max(204.0), preview.y + CARD_HEADER + CARD_PAD);
-    let cols = switcher_columns(screen.width(), cards.len(), card_size.x);
-    let grid_w = card_size.x * cols as f32 + CARD_GAP * (cols - 1) as f32;
+    let layout = SwitcherLayout::measure(ui, cards.len(), preview, workspace, &colors);
+    let card_size = layout.card;
+    let cols = layout.columns;
+    let grid_w = layout.grid_width;
     let rows = cards.len().div_ceil(cols);
-    let grid_h = card_size.y * rows as f32 + CARD_GAP * (rows - 1) as f32;
-    let width = (grid_w + 36.0).max(440.0).min(screen.width() - 24.0);
-    let viewport_h = grid_h.min((screen.height() - 180.0).max(80.0));
-    let height = viewport_h + 134.0;
-    let origin = egui::pos2(screen.center().x - width * 0.5, screen.center().y - height * 0.5);
+    let rail_w = layout.rail_width;
+    let viewport_h = layout.viewport_height;
+    let width = layout.surface.width();
+    let height = layout.surface.height();
+    let origin = layout.surface.min;
+    st.switcher_layout = Some(layout);
     let selection_id = egui::Id::unique("switcher_last_selection");
     let view = (selected, cols, [screen.width().to_bits(), screen.height().to_bits(), preview.x.to_bits(), preview.y.to_bits()]);
     let previous = ui.ctx().data_mut(|d| {
@@ -2175,84 +2246,35 @@ pub fn switcher_screen(
     egui::Area::new(egui::Id::unique("switcher_surface"))
         .order(egui::Order::Foreground)
         .fixed_pos(origin)
+        .default_size(egui::vec2(width, height))
         .movable(false)
         .fade_in(false)
         .show(ui.ctx(), |ui| {
-            ui.set_width(width);
-            egui::Frame::new()
-                .fill(colors.bg)
-                .stroke(egui::Stroke::new(1.0, colors.border))
-                .corner_radius(18.0)
-                .inner_margin(18.0)
-                .show(ui, |ui| {
-                    ui.set_width(width - 36.0);
+            // Area otherwise starts with its previous/default size, making a
+            // ScrollArea grow over several frames even with fixed card sizes.
+            ui.set_min_size(egui::vec2(width, height));
+            ui.set_max_size(egui::vec2(width, height));
+            switcher_frame(&colors).show(ui, |ui| {
+                    ui.set_width(width - switcher_frame(&colors).total_margin().sum().x);
                     ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
-                    let (header, _) =
-                        ui.allocate_exact_size(egui::vec2(ui.available_width(), 40.0), egui::Sense::hover());
-                    draw_icon(
-                        ui.painter(),
-                        Icon::Layers,
-                        egui::pos2(header.left() + 15.0, header.center().y),
-                        colors.fg,
-                    );
-                    let title =
-                        ui.painter().layout_no_wrap("Tab Switcher".into(), egui::FontId::proportional(24.0), colors.fg);
-                    let title_x = header.left() + 42.0;
-                    ui.painter().galley(
-                        egui::pos2(title_x, header.center().y - title.size().y * 0.5),
-                        title.clone(),
-                        colors.fg,
-                    );
-                    let divider = title_x + title.size().x + 22.0;
-                    let count = format!("{} open terminal{}", cards.len(), if cards.len() == 1 { "" } else { "s" });
-                    ui.painter().vline(
-                        divider,
-                        header.center().y - 11.0..=header.center().y + 11.0,
-                        egui::Stroke::new(1.0, colors.border),
-                    );
-                    text(
-                        ui,
-                        header.with_min_x(divider + 20.0),
-                        &count,
-                        colors.muted,
-                        14.0,
-                        false,
-                    );
-                    // The header's other half: which workspace these previews are
-                    // the tabs of. Ten grids of live terminals look alike, so the
-                    // count alone leaves the user guessing which set Alt is about
-                    // to commit. Tinted with the identity color - the same one the
-                    // selected card is outlined in - to agree with the indicator
-                    // the tab bar shows.
-                    if let Some(workspace) = workspace {
-                        let full = format!("Workspace {}", workspace + 1);
-                        // A name is worth its room, and the narrowest surface does
-                        // not have it. A bare number is the same fact, shorter, so
-                        // the header never truncates or overruns the count.
-                        let label = if header.right() - (divider + 20.0 + text_width(ui, &count, 14.0) + 24.0)
-                            >= text_width(ui, &full, 14.0)
-                        {
-                            full
-                        } else {
-                            (workspace + 1).to_string()
-                        };
-                        let label_w = text_width(ui, &label, 14.0);
-                        text_right(ui, header, &label, colors.accent, 14.0, false);
-                        // One rule, on its left: nothing else shares the right end
-                        // of the line, and the count is a different kind of fact.
-                        ui.painter().vline(
-                            header.right() - label_w - 14.0,
-                            header.center().y - 11.0..=header.center().y + 11.0,
-                            egui::Stroke::new(1.0, colors.border),
-                        );
+                    switcher_header(ui, cards.len(), workspace, &colors);
+                    let (body, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), viewport_h), egui::Sense::hover());
+                    let mut grid = body;
+                    if workspace.is_some() {
+                        let rail = body.with_max_x(body.left() + rail_w - 18.0);
+                        switcher_workspaces(ui, rail, st, workspace_colors, &colors);
+                        ui.painter().vline(rail.right() + 9.0, body.y_range(), egui::Stroke::new(1.0, colors.border));
+                        grid.min.x += rail_w;
                     }
-                    ui.add_space(12.0);
+                    let mut grid_ui = ui.new_child(egui::UiBuilder::new().id_salt("switcher_grid_host").max_rect(grid));
+                    grid_ui.set_clip_rect(ui.clip_rect().intersect(grid));
                     egui::ScrollArea::vertical()
                         .id_salt("switcher_grid")
                         .animated(false)
                         .auto_shrink([false, false])
+                        .min_scrolled_height(viewport_h)
                         .max_height(viewport_h)
-                        .show(ui, |ui| {
+                        .show(&mut grid_ui, |ui| {
                             let inset = ((ui.available_width() - grid_w) * 0.5).max(0.0);
                             let mut selection = None;
                             let mut scroll_origin_y = 0.0_f32;
@@ -2271,6 +2293,7 @@ pub fn switcher_screen(
                                         row_rect.min + egui::vec2(inset + col as f32 * (card_size.x + CARD_GAP), 0.0),
                                         card_size,
                                     );
+                                    crate::ui_style::record_control(ui, format!("switcher/tab/{}", i + 1), rect);
                                     let logical_rect = rect;
                                     let local = egui::Rect::from_min_size(egui::pos2(
                                         col as f32 * (card_size.x + CARD_GAP), row as f32 * (card_size.y + CARD_GAP)), card_size);
@@ -2299,42 +2322,156 @@ pub fn switcher_screen(
                                     egui::Stroke::new(2.5, colors.accent), egui::StrokeKind::Inside);
                             }
                         });
-                    ui.add_space(18.0);
-                    if ui.available_width() < 650.0 {
-                        let (help, _) =
-                            ui.allocate_exact_size(egui::vec2(ui.available_width(), 30.0), egui::Sense::hover());
-                        text(
-                            ui,
-                            help,
-                            "← →: move · release Alt: switch · Esc: cancel",
-                            colors.muted,
-                            11.0,
-                            false,
-                        );
-                    } else {
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = 7.0;
-                            let full = ui.available_width();
-                            // Keep the help centered; its labels describe the actual Alt-held controls.
-                            ui.add_space(((full - 650.0) * 0.5).max(0.0));
-                            for (key, label) in
-                                [("← / →", "move"), ("Enter / release Alt", "switch"), ("Esc", "cancel")]
-                            {
-                                egui::Frame::new()
-                                    .fill(colors.card)
-                                    .stroke(egui::Stroke::new(1.0, colors.border))
-                                    .corner_radius(5.0)
-                                    .inner_margin(egui::vec2(7.0, 4.0))
-                                    .show(ui, |ui| {
-                                        ui.label(egui::RichText::new(key).monospace().size(12.0).color(colors.fg));
-                                    });
-                                ui.label(egui::RichText::new(label).size(12.0).color(colors.muted));
-                                ui.add_space(6.0);
-                            }
-                        });
-                    }
+                    switcher_footer(ui, &colors);
                 });
         });
+}
+
+fn switcher_header(ui: &mut egui::Ui, count: usize, workspace: Option<usize>, colors: &TermStyle) {
+    ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
+    let (header, _) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 40.0), egui::Sense::hover());
+    draw_icon(
+        ui.painter(),
+        Icon::Layers,
+        egui::pos2(header.left() + 15.0, header.center().y),
+        colors.fg,
+    );
+    let title =
+        ui.painter().layout_no_wrap("Tab Switcher".into(), egui::FontId::proportional(24.0), colors.fg);
+    let title_x = header.left() + 42.0;
+    ui.painter().galley(
+        egui::pos2(title_x, header.center().y - title.size().y * 0.5),
+        title.clone(),
+        colors.fg,
+    );
+    let divider = title_x + title.size().x + 22.0;
+    let count = format!("{} open terminal{}", count, if count == 1 { "" } else { "s" });
+    ui.painter().vline(
+        divider,
+        header.center().y - 11.0..=header.center().y + 11.0,
+        egui::Stroke::new(1.0, colors.border),
+    );
+    text(
+        ui,
+        header.with_min_x(divider + 20.0),
+        &count,
+        colors.muted,
+        14.0,
+        false,
+    );
+    // The header's other half: which workspace these previews are
+    // the tabs of. Ten grids of live terminals look alike, so the
+    // count alone leaves the user guessing which set Alt is about
+    // to commit. Tinted with the identity color - the same one the
+    // selected card is outlined in - to agree with the indicator
+    // the tab bar shows.
+    if let Some(workspace) = workspace {
+        let full = format!("Workspace {}", workspace + 1);
+        // A name is worth its room, and the narrowest surface does
+        // not have it. A bare number is the same fact, shorter, so
+        // the header never truncates or overruns the count.
+        let label = if header.right() - (divider + 20.0 + text_width(ui, &count, 14.0) + 24.0)
+            >= text_width(ui, &full, 14.0)
+        {
+            full
+        } else {
+            (workspace + 1).to_string()
+        };
+        let label_w = text_width(ui, &label, 14.0);
+        text_right(ui, header, &label, colors.accent, 14.0, false);
+        // One rule, on its left: nothing else shares the right end
+        // of the line, and the count is a different kind of fact.
+        ui.painter().vline(
+            header.right() - label_w - 14.0,
+            header.center().y - 11.0..=header.center().y + 11.0,
+            egui::Stroke::new(1.0, colors.border),
+        );
+    }
+    ui.add_space(12.0);
+}
+
+fn switcher_keycaps(ui: &mut egui::Ui, colors: &TermStyle) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 7.0;
+        for (key, label) in [("← / →", "move"), ("Enter / release Alt", "switch"), ("Esc", "cancel")] {
+            egui::Frame::new().fill(colors.card).stroke(egui::Stroke::new(1.0, colors.border))
+                .corner_radius(5.0).inner_margin(egui::vec2(7.0, 4.0)).show(ui, |ui| {
+                    ui.add(egui::Label::new(egui::RichText::new(key).monospace().size(12.0).color(colors.fg))
+                        .wrap_mode(egui::TextWrapMode::Extend));
+                });
+            ui.add(egui::Label::new(egui::RichText::new(label).size(12.0).color(colors.muted))
+                .wrap_mode(egui::TextWrapMode::Extend));
+        }
+    });
+}
+
+fn switcher_footer(ui: &mut egui::Ui, colors: &TermStyle) {
+    ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
+    ui.add_space(18.0);
+    let natural = crate::ui_style::measure_section(ui, "keycaps", 0.0, |ui| switcher_keycaps(ui, colors));
+    if natural.x <= ui.available_width() {
+        ui.horizontal(|ui| {
+            ui.add_space((ui.available_width() - natural.x) * 0.5);
+            switcher_keycaps(ui, colors);
+        });
+    } else {
+        ui.add(egui::Label::new(egui::RichText::new("← →: move · release Alt: switch · Esc: cancel")
+            .monospace().size(11.0).color(colors.muted)).truncate());
+    }
+}
+
+/// A compact version of the workspace panel, sharing its tab carousel and
+/// deferred workspace/tab actions. Empty slots have no place in this list.
+fn switcher_workspaces(ui: &mut egui::Ui, rect: egui::Rect, st: &mut UiState,
+    workspace_colors: &[egui::Color32], colors: &TermStyle) {
+    st.ws_visible_tabs.clear();
+    let mut child = ui.new_child(egui::UiBuilder::new().id_salt("switcher_workspaces").max_rect(rect));
+    child.set_clip_rect(ui.clip_rect().intersect(rect));
+    child.spacing_mut().item_spacing = egui::vec2(0.0, 8.0);
+    let (heading, _) = child.allocate_exact_size(egui::vec2(rect.width(), 22.0), egui::Sense::hover());
+    text(&child, heading, "Workspaces", colors.muted, 12.0, true);
+    let frame = ui.ctx().cumulative_frame_nr();
+    let follow_current = ui.ctx().data_mut(|data| {
+        let id = egui::Id::unique("switcher_workspace_viewport");
+        let current = st.ws_rows.iter().find(|row| row.current).map(|row| row.index);
+        let previous = data.get_temp::<(Option<usize>, egui::Vec2, u64)>(id);
+        data.insert_temp(id, (current, rect.size(), frame));
+        previous.is_none_or(|(old, size, last)| old != current || size != rect.size() || frame > last + 1)
+    });
+    egui::ScrollArea::vertical().id_salt("list").animated(false)
+        .auto_shrink([false, false]).max_height(child.available_height())
+        .show(&mut child, |ui| {
+            for row in st.ws_rows.iter().filter(|row| row.count > 0) {
+                let color = workspace_colors.get(row.index).copied().unwrap_or(colors.accent);
+                let (card, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 90.0), egui::Sense::hover());
+                if row.current && follow_current { ui.scroll_to_rect(card, None); }
+                let heading = card.with_max_y(card.top() + 34.0);
+                crate::ui_style::record_control(ui, format!("workspace/{}", row.index + 1), heading);
+                let response = ui.interact(heading, ui.scope_id().with(("workspace", row.index)), egui::Sense::click());
+                colors.surface(ui.painter(), card, 8.0, false, response.hovered());
+                if row.current {
+                    ui.painter().rect_stroke(card, 8.0, egui::Stroke::new(1.5, color), egui::StrokeKind::Inside);
+                }
+                crate::ui_style::workspace_icon(ui.painter(), row.icon, heading.left_center() + egui::vec2(17.0, 0.0), color);
+                let name = if row.genre.is_empty() { format!("Workspace {}", row.index + 1) }
+                    else { format!("{} · {}", row.index + 1, row.genre) };
+                text(ui, heading.shrink2(egui::vec2(8.0, 0.0)).with_min_x(heading.left() + 34.0),
+                    &name, if row.current { color } else { colors.fg }, 12.0, true);
+                if response.clicked() {
+                    st.ws_out = Some(row.index);
+                    release_focus(ui.ctx());
+                }
+                response.on_hover_text(format!("{} · {} tabs · {}", name, row.count, row.shortcut))
+                    .on_hover_cursor(egui::CursorIcon::PointingHand);
+                let strip = card.shrink2(egui::vec2(7.0, 0.0)).with_min_y(card.top() + 36.0).with_max_y(card.bottom() - 7.0);
+                if let Some(id) = workspace_tab_strip(ui, strip, row, false, color, colors, &mut st.ws_visible_tabs) {
+                    st.ws_tab_out = Some((row.index, id));
+                    release_focus(ui.ctx());
+                }
+            }
+        });
+    ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
 }
 
 fn switcher_card(
@@ -2418,6 +2555,13 @@ pub fn apply_textures(
     full.textures_delta.clear();
 }
 
+fn settings_footer(ui: &mut egui::Ui, colors: &TermStyle) -> (bool, bool) {
+    ui.add_space(12.0);
+    ui.separator();
+    ui.label(egui::RichText::new("Changes preview instantly.").small().color(colors.muted));
+    actions(ui, ui.available_width(), "Save", "Cancel")
+}
+
 /// Settings shares the history sidebar's palette and outlined controls.
 /// Fonts and colours preview live; Save persists them and Cancel reloads
 /// the saved configuration. The action row stays outside the scroll area.
@@ -2432,7 +2576,9 @@ pub fn config_window(
     if !*open { return ev; }
     let colors = TermStyle::new(ui, rgb_c32(cfg.col[2]), rgb_c32(cfg.col[1]));
     let top = st.panel_top;
-    let height = (ui.max_rect().bottom() - top).max(180.0);
+    let frame = egui::Frame::new().fill(colors.bg).inner_margin(18.0);
+    // Window dimensions already include its frame margins.
+    let height = (ui.max_rect().bottom() - top).max(0.0);
     egui::Window::new("Settings")
         .id(egui::Id::unique("config_panel"))
         .title_bar(false)
@@ -2444,7 +2590,7 @@ pub fn config_window(
         .min_height(height).max_height(height).default_height(height)
         .fade_in(false)
         .fade_out(false)
-        .frame(egui::Frame::new().fill(colors.bg).inner_margin(18.0))
+        .frame(frame)
         .show(ui.ctx(), |ui| {
             colors.apply_controls(ui);
             let edge = ui.max_rect().left() - 18.0;
@@ -2461,7 +2607,6 @@ pub fn config_window(
             // move a label every time the panel is resized. Six fills an even
             // grid, so nothing has to span or stretch.
             let cell = ((ui.available_width() - 8.0) / 2.0).max(120.0);
-            let mut nav = String::new();
             for group in SETTINGS_PAGES.chunks(2) {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
@@ -2473,7 +2618,7 @@ pub fn config_window(
                             .corner_radius(17.0).min_size(egui::vec2(cell, 34.0))
                             .fill(if selected { colors.bg.lerp_to_gamma(colors.accent, 0.16) } else { colors.card })
                             .stroke(egui::Stroke::new(1.0, if selected { colors.accent } else { colors.border })));
-                        nav.push_str(&format!("{name}={:.0},{:.0} ", response.rect.center().x, response.rect.center().y));
+                        crate::ui_style::record_control(ui, format!("settings/page/{name}"), response.rect);
                         if response.clicked() {
                             st.settings_page = page;
                             // A popup belongs to the page that opened it. Left
@@ -2486,20 +2631,14 @@ pub fn config_window(
                     }
                 });
             }
-            let nav = nav.trim_end().to_string();
-            if st.settings_nav_log != nav {
-                st.settings_nav_log = nav.clone();
-                // The geometry of the selector, for the headless tests: they
-                // click a category by name instead of guessing an x-offset that
-                // a layout change would silently move.
-                log::info!("settings nav: {nav}");
-            }
             ui.add_space(12.0);
+            let (body, (save, cancel)) = crate::ui_style::bottom_section(ui, "settings_footer", |ui| settings_footer(ui, &colors));
+            let mut body_ui = ui.new_child(egui::UiBuilder::new().id_salt("settings_content").max_rect(body));
+            body_ui.set_clip_rect(ui.clip_rect().intersect(body));
             egui::ScrollArea::vertical()
                 .id_salt(("settings_body", st.settings_page as u8))
                 .auto_shrink([false, false])
-                .max_height((ui.available_height() - 86.0).max(40.0))
-                .show(ui, |ui| {
+                .show(&mut body_ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 12.0;
                     match st.settings_page {
                         SettingsPage::Appearance => appearance_page(ui, cfg, st, choices, &mut ev, &colors),
@@ -2510,10 +2649,6 @@ pub fn config_window(
                         SettingsPage::Keys => keys_page(ui, cfg, st, &colors),
                     }
                 });
-            ui.add_space(12.0);
-            ui.separator();
-            ui.label(egui::RichText::new("Changes preview instantly.").small().color(colors.muted));
-            let (save, cancel) = actions(ui, ui.available_width(), "Save", "Cancel");
             if save || cancel {
                 ev.save = save;
                 ev.revert = cancel;
@@ -2618,7 +2753,7 @@ fn appearance_page(
             for (i, color) in cfg.col.iter_mut().enumerate() {
                 ui.vertical(|ui| {
                     ui.label(egui::RichText::new(format!("{}", i + 1)).small().color(colors.muted));
-                    ev.apply |= color_cell(ui, color);
+                    ev.apply |= color_cell(ui, color, &format!("Group {}", i + 1));
                 });
             }
         });
@@ -2682,7 +2817,7 @@ fn workspace_settings(ui: &mut egui::Ui, cfg: &mut crate::config::Config, st: &m
         });
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("Custom color").small().color(colors.muted));
-            ev.apply |= color_cell(ui, &mut cfg.workspace_colors[index]);
+            ev.apply |= color_cell(ui, &mut cfg.workspace_colors[index], "Workspace");
         });
         ui.label("Icon");
         let cell_width = ((ui.available_width() - 32.0) / 5.0).max(30.0);
@@ -2726,7 +2861,9 @@ fn window_page(ui: &mut egui::Ui, cfg: &mut crate::config::Config, ev: &mut Conf
     section(ui, "Window dimensions", colors, |ui| {
         form_grid("window-size").show(ui, |ui| {
             row(ui, "Default width", |ui| {
-                ev.apply |= ui.add(egui::DragValue::new(&mut cfg.default_width).suffix(" px")).changed();
+                let response = ui.add(egui::DragValue::new(&mut cfg.default_width).suffix(" px"));
+                crate::ui_style::record_control(ui, "settings/default_width", response.rect);
+                ev.apply |= response.changed();
             });
             row(ui, "Default height", |ui| {
                 ev.apply |= ui.add(egui::DragValue::new(&mut cfg.default_height).suffix(" px")).changed();
@@ -3056,9 +3193,9 @@ fn font_row(
     ev: &mut ConfigEvents,
 ) {
     row(ui, label, |ui| {
-        let shown: String = cfg_value.chars().take(30).collect();
-        let r = ui.add_sized([174.0, 30.0], egui::Button::new(shown).truncate())
+        let r = ui.add_sized([174.0, 30.0], egui::Button::new(cfg_value.as_str()).truncate())
             .on_hover_text(cfg_value.as_str());
+        crate::ui_style::record_control(ui, format!("settings/font/{label}"), r.rect);
         // One click does the whole job: closed opens, open (this row)
         // closes, the *other* row's popup is swapped for this one. The
         // toggle closes on PRESS, not on the click: a release-triggered
@@ -3416,7 +3553,7 @@ fn compose_value(
 fn color_row(ui: &mut egui::Ui, label: &str, c: &mut crate::config::Rgb, ev: &mut ConfigEvents) {
     row(ui, label, |ui| {
         ui.horizontal(|ui| {
-            if color_cell(ui, c) { ev.apply = true; }
+            if color_cell(ui, c, label) { ev.apply = true; }
             ui.label(egui::RichText::new(format!("#{:02X}{:02X}{:02X}", c.0, c.1, c.2))
                 .monospace().color(ui.visuals().weak_text_color()));
         });
@@ -3424,11 +3561,12 @@ fn color_row(ui: &mut egui::Ui, label: &str, c: &mut crate::config::Rgb, ev: &mu
 }
 
 /// The color button alone (the control side of an aligned row).
-fn color_cell(ui: &mut egui::Ui, c: &mut crate::config::Rgb) -> bool {
+fn color_cell(ui: &mut egui::Ui, c: &mut crate::config::Rgb, label: &str) -> bool {
     let mut color = rgb_c32(*c);
     let response = ui.add_sized([30.0, 28.0], egui::Button::new("").fill(color)
         .stroke(ui.visuals().widgets.inactive.bg_stroke).corner_radius(5.0))
         .on_hover_text(format!("Edit #{:02X}{:02X}{:02X}", c.0, c.1, c.2));
+    crate::ui_style::record_control(ui, format!("settings/color/{label}"), response.rect);
     let mut changed = false;
     egui::Popup::menu(&response)
         .style((**ui.style()).clone())
@@ -3533,6 +3671,49 @@ mod regression {
                         assert!((surface.rect.top() - 80.0).abs() <= 1.0);
                         assert_eq!(surface.corner_radius, egui::CornerRadius::same(9));
                         full.textures_delta.clear();
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn menus_and_information_dialogs_fit_short_windows() {
+        for (w, h) in [(360.0, 240.0), (560.0, 320.0), (1100.0, 700.0)] {
+            for heading_size in [20.0, 32.0] {
+                for page in [None, Some(InfoPage::Shortcuts), Some(InfoPage::About)] {
+                    let ctx = Context::default();
+                    ctx.style_mut_of(egui::Theme::Dark, |style| { style.text_styles.insert(egui::TextStyle::Heading,
+                        egui::FontId::proportional(heading_size)); });
+                    let cfg = crate::config::Config::default();
+                    let mut st = UiState { info_page: page, menu_open: page.is_none(),
+                        menu_pos: [w - 10.0, h - 10.0],
+                        menu_items: (0..40).map(|i| (format!("Action {i}"), format!("action_{i}"), true)).collect(),
+                        ..Default::default() };
+                    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(w, h));
+                    for frame in 0..4 {
+                        let mut colors = None;
+                        let mut full = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), time: Some(frame as f64), ..Default::default() }, |ui| {
+                            colors = Some(TermStyle::new(ui, ui.visuals().text_color(), ui.visuals().error_fg_color));
+                            if page.is_some() { app_info(ui, &mut st, &cfg); }
+                            else { ctx_menu(ui, &mut st, &cfg); }
+                        });
+                        full.textures_delta.clear();
+                        if frame < 2 { continue; }
+                        let colors = colors.unwrap();
+                        let surface = full.shapes.iter().find_map(|shape| match &shape.shape {
+                            egui::Shape::Rect(rect) if rect.fill == colors.bg && rect.stroke.color == colors.border => Some(rect.rect),
+                            _ => None,
+                        }).expect("popup surface missing");
+                        assert!(screen.contains_rect(surface), "popup escaped {w}x{h} at heading size {heading_size}: {surface:?}");
+                        if page.is_some() {
+                            let close = crate::ui_style::control_rect(&ctx, "info/close").expect("Close button missing");
+                            let (clip, button) = full.shapes.iter().find_map(|shape| match &shape.shape {
+                                egui::Shape::Rect(rect) if rect.corner_radius.nw == 5 && rect.rect.contains(close.center()) =>
+                                    Some((shape.clip_rect, rect.rect)), _ => None,
+                            }).expect("Close button surface missing");
+                            assert!(clip.contains_rect(button) && screen.contains_rect(button), "Close button clipped: {button:?}");
+                        }
                     }
                 }
             }
@@ -3807,6 +3988,11 @@ mod regression {
                             let rect = egui::Rect::from_min_size(text.pos, text.galley.size());
                             assert!(rect.min.y >= 24.0 && rect.max.y < h, "{label} is outside the window: {rect:?}");
                             assert!(clip.contains_rect(rect), "{label} is clipped: {rect:?} by {clip:?}");
+                            let button = full.shapes.iter().find_map(|s| match &s.shape {
+                                egui::Shape::Rect(r) if r.corner_radius.nw == 5 && r.rect.contains(rect.center()) => Some((s.clip_rect, r.rect)),
+                                _ => None,
+                            }).expect("action button surface missing");
+                            assert!(button.0.contains_rect(button.1), "{label} button surface is clipped: {button:?}");
                         }
                     }
                 }
@@ -3817,6 +4003,10 @@ mod regression {
                 for label in ["Save", "Cancel"] {
                     assert!(full.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text() == label)), "{label} missing");
                 }
+                let surface = full.shapes.iter().filter_map(|shape| match &shape.shape {
+                    egui::Shape::Rect(rect) if rect.rect.top() <= st.panel_top => Some(rect.rect), _ => None,
+                }).max_by(|a, b| a.height().total_cmp(&b.height())).expect("settings surface missing");
+                assert!((surface.bottom() - h).abs() < 1.0, "settings panel does not reach window bottom: {surface:?}");
                 full.textures_delta.clear();
             }
         }
@@ -3971,7 +4161,7 @@ mod regression {
                         screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(w, h))),
                         ..Default::default()
                     }, |ui| switcher_screen(ui, true, 0, egui::Color32::from_black_alpha(150),
-                        egui::Color32::CYAN, &cards, egui::vec2(tw.round(), th.round()), workspace, &mut None));
+                        egui::Color32::CYAN, &cards, egui::vec2(tw.round(), th.round()), workspace, &mut UiState::default(), &[], &mut None));
                     full.textures_delta.clear();
                     output = Some(full);
                 }
@@ -3994,6 +4184,165 @@ mod regression {
                 }
             }
         }
+    }
+
+    #[test]
+    fn switcher_reserves_two_by_two_when_switching_workspaces() {
+        for (w, h, scale, counts) in [
+            (1500.0, 900.0, 0.25, vec![1, 4, 2, 3, 1]),
+            (3840.0, 2160.0, 0.16, vec![1, 4, 2, 3, 1]),
+            (560.0, 480.0, 0.25, vec![1, 2, 1]),
+        ] {
+            let ctx = Context::default();
+            let (tw, th) = thumbnail_size(w, w / (h - 28.0), scale);
+            let preview = egui::vec2(tw.round(), th.round());
+            let mut st = UiState::default();
+            let mut initial_surface = None;
+            for (workspace, count) in counts.into_iter().enumerate() {
+                let cards: Vec<_> = (0..count).map(|i| SwitcherCard {
+                    id: workspace * 10 + i, title: format!("tab {i}"), status: SwitcherStatus::Unknown,
+                    active: i == 0, marker: false, cwd: None, thumb: None,
+                }).collect();
+                for frame in 0..3 {
+                    let mut full = ctx.run_ui(egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(w, h))),
+                        ..Default::default()
+                    }, |ui| switcher_screen(ui, true, 0, egui::Color32::from_black_alpha(150),
+                        egui::Color32::CYAN, &cards, preview, Some(workspace), &mut st, &[], &mut None));
+                    full.textures_delta.clear();
+                    if workspace == 0 && frame == 0 { continue; } // Area's invisible sizing pass.
+                    let surface = full.shapes.iter().find_map(|cs| match &cs.shape {
+                        egui::Shape::Rect(r) if r.corner_radius.nw == 18 => Some(r.rect), _ => None,
+                    }).expect("switcher surface missing");
+                    assert!(surface.left() >= 0.0 && surface.right() <= w
+                        && surface.top() >= 0.0 && surface.bottom() <= h);
+                    if let Some(initial) = initial_surface {
+                        assert_eq!(surface, initial, "popup resized for {count} tabs at {w}x{h}");
+                    } else {
+                        initial_surface = Some(surface);
+                        let layout = st.switcher_layout.as_ref().unwrap();
+                        if w >= 1500.0 {
+                            assert!(layout.viewport_height >= layout.card.y * 2.0 + CARD_GAP,
+                                "popup did not reserve two preview rows");
+                        }
+                        assert_eq!(surface, layout.surface, "painted frame differs from published layout");
+                    }
+                    if w >= 1500.0 && count >= 2 {
+                        assert_eq!(st.switcher_layout.as_ref().unwrap().columns, 2);
+                        let first = crate::ui_style::control_rect(&ctx, "switcher/tab/1").unwrap();
+                        let second = crate::ui_style::control_rect(&ctx, "switcher/tab/2").unwrap();
+                        assert_eq!(first.top(), second.top(), "previews should share the first row");
+                        assert!(first.right() < second.left(), "preview columns overlap");
+                        assert!(surface.contains_rect(second), "second column is clipped");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn switcher_reserves_preview_space_before_textures_arrive() {
+        for workspaces in [false, true] {
+            for (w, h) in [(1500.0, 900.0), (560.0, 480.0)] {
+                for scale in [0.25, 0.6] {
+                    let ctx = Context::default();
+                    let (tw, th) = thumbnail_size(w, w / (h - 28.0), scale);
+                    let preview = egui::vec2(tw.round(), th.round());
+                    let tex = ctx.load_texture("late preview", egui::ColorImage::filled([32, 20], egui::Color32::BLACK),
+                        egui::TextureOptions::LINEAR);
+                    let mut cards: Vec<_> = (0..8).map(|i| SwitcherCard {
+                        id: i, title: format!("tab {i}"), status: SwitcherStatus::Unknown,
+                        active: i == 0, marker: false, cwd: None, thumb: None,
+                    }).collect();
+                    let mut st = UiState::default();
+                    let mut first = None;
+                    for frame in 0..8 {
+                        if frame >= 3 {
+                            cards[frame - 3].thumb = Some((tex.id(), (32, 20)));
+                        }
+                        let mut full = ctx.run_ui(egui::RawInput {
+                            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(w, h))),
+                            time: Some(frame as f64 * 0.05), ..Default::default()
+                        }, |ui| switcher_screen(ui, true, 0, egui::Color32::from_black_alpha(150),
+                            egui::Color32::CYAN, &cards, preview, workspaces.then_some(0), &mut st, &[], &mut None));
+                        full.textures_delta.clear();
+                        let geometry: Vec<_> = full.shapes.iter().filter_map(|cs| match &cs.shape {
+                            egui::Shape::Rect(r) if r.corner_radius.nw == 18 || r.stroke.width == 2.5 => Some(r.rect),
+                            _ => None,
+                        }).collect();
+                        // Area's first pass measures invisibly. Every painted
+                        // frame must already have the final surface and card size.
+                        if frame == 1 { first = Some(geometry.clone()); }
+                        if frame > 1 {
+                            assert_eq!(first.as_ref().unwrap(), &geometry,
+                                "late previews changed geometry: {w}x{h}, scale={scale}, workspaces={workspaces}, frame={frame}");
+                        }
+                        if frame > 0 {
+                            assert_eq!(geometry.len(), 2);
+                            for rect in geometry {
+                                assert!(rect.left() >= 0.0 && rect.right() <= w && rect.top() >= 0.0 && rect.bottom() <= h,
+                                    "switcher escaped screen: {rect:?}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn switcher_workspace_rail_lists_open_workspaces_and_selects_exact_tabs() {
+        let ctx = Context::default();
+        let tex = ctx.load_texture("workspace preview", egui::ColorImage::filled([32, 20], egui::Color32::BLACK),
+            egui::TextureOptions::LINEAR);
+        let mut st = UiState::default();
+        st.ws_rows = (0..3).map(|index| WsRow {
+            index, count: if index == 2 { 0 } else { 9 }, title: "terminal".into(),
+            genre: ["Development", "Research", "Empty"][index].into(), icon: crate::config::WorkspaceIcon::Code,
+            tabs: if index == 2 { vec![] } else { (0..9).map(|i| WsTab {
+                id: index * 100 + i, title: format!("terminal {i}"), selected: i == 8,
+                preview: Some((tex.id(), (32, 20))),
+            }).collect() }, current: index == 0, shortcut: format!("Alt+Shift+{}", index + 1),
+        }).collect();
+        let cards = vec![SwitcherCard { id: 8, title: "terminal".into(), status: SwitcherStatus::Unknown,
+            active: true, marker: false, cwd: None, thumb: None }];
+        let (tw, th) = thumbnail_size(1500.0, 1.7, 0.25);
+        let mut frame = |events, workspace| {
+            let mut full = ctx.run_ui(egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1500.0, 900.0))),
+                events, ..Default::default()
+            }, |ui| switcher_screen(ui, true, 0, egui::Color32::from_black_alpha(150),
+                egui::Color32::CYAN, &cards, egui::vec2(tw.round(), th.round()), workspace, &mut st, &[], &mut None));
+            full.textures_delta.clear();
+            full
+        };
+        frame(vec![], Some(0));
+        let full = frame(vec![], Some(0));
+        let heading = full.shapes.iter().find_map(|cs| match &cs.shape {
+            egui::Shape::Text(t) if t.galley.text() == "2 · Research" => Some(t.pos), _ => None,
+        }).expect("populated workspace missing");
+        assert!(!full.shapes.iter().any(|cs| matches!(&cs.shape,
+            egui::Shape::Text(t) if t.galley.text().contains("Empty"))));
+        let images: Vec<_> = full.shapes.iter().filter_map(|cs| match &cs.shape {
+            egui::Shape::Rect(r) if r.fill_texture_id() == tex.id() && cs.clip_rect.contains(r.rect.center()) => Some(r.rect),
+            _ => None,
+        }).collect();
+        assert!(!images.is_empty(), "workspace miniatures missing");
+        // Last focused tab is visible in both independently scrolling strips.
+        let pick = images.iter().filter(|r| r.top() > heading.y).max_by(|a, b| a.right().total_cmp(&b.right())).unwrap().center();
+        let click = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary,
+            pressed, modifiers: egui::Modifiers::ALT };
+        frame(vec![egui::Event::PointerMoved(pick), click(pick, true)], Some(0));
+        frame(vec![click(pick, false)], Some(0));
+        frame(vec![egui::Event::PointerMoved(heading), click(heading, true)], Some(0));
+        frame(vec![click(heading, false)], Some(0));
+        let off = frame(vec![], None);
+        assert!(!off.shapes.iter().any(|cs| matches!(&cs.shape,
+            egui::Shape::Text(t) if t.galley.text() == "Workspaces" || t.galley.text() == "2 · Research")));
+        assert!(st.ws_visible_tabs.contains(&8));
+        assert!(st.ws_visible_tabs.contains(&108));
+        assert_eq!(st.ws_tab_out, Some((1, 108)));
+        assert_eq!(st.ws_out, Some(1));
     }
 
     #[test]
@@ -4020,7 +4369,7 @@ mod regression {
                     let mut full = ctx.run_ui(egui::RawInput {
                         screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(w, h))),
                         ..Default::default()
-                    }, |ui| switcher_screen(ui, true, selected, egui::Color32::from_black_alpha(150), egui::Color32::CYAN, &cards, egui::vec2(tw as f32, th as f32), None, &mut None));
+                    }, |ui| switcher_screen(ui, true, selected, egui::Color32::from_black_alpha(150), egui::Color32::CYAN, &cards, egui::vec2(tw as f32, th as f32), None, &mut UiState::default(), &[], &mut None));
                     full.textures_delta.clear();
                     output = Some(full);
                 }
@@ -4576,6 +4925,38 @@ mod input_regression {
     }
 
     #[test]
+    fn graveyard_details_actions_are_visible_and_clickable() {
+        for size in [egui::vec2(1500.0, 900.0), egui::vec2(560.0, 480.0), egui::vec2(480.0, 320.0)] {
+            let ctx = Context::default();
+            let mut st = UiState { right_panel: RightPanel::Graveyard, grave_sel: Some(0),
+                grave_rows: vec![GraveRow { id: 1, title: "terminal".into(), cwd: "/tmp".into(), buried: "1 s".into() }],
+                ..Default::default() };
+            for frame in 0..5 {
+                let click = crate::ui_style::control_rect(&ctx, "graveyard/details/raise");
+                let events = if frame >= 3 {
+                    let pos = click.expect("Raise action missing").center();
+                    vec![egui::Event::PointerMoved(pos), egui::Event::PointerButton {
+                        pos, button: egui::PointerButton::Primary, pressed: frame == 3, modifiers: egui::Modifiers::NONE }]
+                } else { vec![] };
+                let mut full = ctx.run_ui(egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)), events, ..Default::default()
+                }, |ui| graveyard_panel(ui, &mut st, egui::Color32::GREEN, egui::Color32::RED, 24.0, &[]));
+                full.textures_delta.clear();
+                if frame < 1 { continue; }
+                for label in ["Raise tab", "Kill for good"] {
+                    let (clip, text) = full.shapes.iter().find_map(|shape| match &shape.shape {
+                        egui::Shape::Text(t) if t.galley.text() == label => Some((shape.clip_rect, t)), _ => None,
+                    }).expect("details action not painted");
+                    let rect = egui::Rect::from_min_size(text.pos, text.galley.size());
+                    assert!(clip.contains_rect(rect), "{label} clipped at {size:?}");
+                    assert!(egui::Rect::from_min_size(egui::Pos2::ZERO, size).contains_rect(rect));
+                }
+            }
+            assert_eq!(st.grave_out, Some((0, "raise".into())));
+        }
+    }
+
+    #[test]
     fn history_preview_uses_remaining_space_and_only_draws_visible_lines() {
         for height in [700.0, 1000.0] {
             let ctx = Context::default();
@@ -4593,6 +4974,14 @@ mod input_regression {
                 }, |ui| history_panel(ui, &mut st, egui::Color32::GREEN, egui::Color32::RED, 28.0));
                 full.textures_delta.clear();
                 if frame == 0 { continue; }
+                if frame == 2 {
+                    for label in ["success (exit 0)", "00:00:00"] {
+                        let text = full.shapes.iter().find_map(|shape| match &shape.shape {
+                            egui::Shape::Text(text) if text.galley.text() == label => Some(text), _ => None,
+                        }).expect("history metadata missing");
+                        assert!(!text.galley.elided, "history metadata truncated despite available space: {label}");
+                    }
+                }
                 let lines: Vec<_> = full.shapes.iter().filter_map(|s| match &s.shape {
                     egui::Shape::Text(t) if t.galley.text() == "build output" => Some((s.clip_rect, t)),
                     _ => None,

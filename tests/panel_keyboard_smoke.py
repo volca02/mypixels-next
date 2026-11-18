@@ -4,10 +4,11 @@ Run: xvfb-run -a python3 tests/panel_keyboard_smoke.py
 """
 import os
 from pathlib import Path
-import re
 import subprocess as sp
 import tempfile
 import time
+
+from ui_geometry import control_center
 
 root = Path(__file__).resolve().parents[1]
 assert os.environ.get('DISPLAY'), 'Run under xvfb-run'
@@ -22,7 +23,7 @@ default_maximize: false
 hide_single_tab: false
 term_opacity: 0
 ''')
-env = dict(os.environ, HOME=str(work), XDG_CONFIG_HOME=str(work / '.config'), MYPIXELS_CONFIG=str(config), RUST_LOG='info')
+env = dict(os.environ, HOME=str(work), XDG_CONFIG_HOME=str(work / '.config'), MYPIXELS_CONFIG=str(config), RUST_LOG='info', MYPIXELS_UI_GEOMETRY='1')
 env.pop('WAYLAND_DISPLAY', None)
 env.pop('MYPIXELS_KEYS', None)
 binary = os.environ.get('MYPIXELS_BIN', str(root / 'target/debug/mypixels'))
@@ -50,28 +51,12 @@ def key(value):
     time.sleep(.12)
 
 
-def nav():
-    """Category cell centers as the app reported them, so a selector relayout
-    cannot silently move a click onto a different control."""
-    line = [l for l in log_path.read_text().splitlines() if 'settings nav: ' in l][-1]
-    return {name: (float(x), float(y))
-            for name, x, y in re.findall(r'(\w+)=(-?[0-9.]+),(-?[0-9.]+)', line)}
-
-
 def page(name):
-    x, y = nav()[name]
-    click(x, y)
-
-
-# The default-width field, first row of Window dimensions, measured down from the
-# selector the body sits under.
-WIDTH_ROW = 188
+    click(*control_center(log_path, f'settings/page/{name}'))
 
 
 def click_width():
-    # x is the default-width field within the panel; y comes from the selector,
-    # which is what actually moves when the layout changes.
-    click(width - 448 + 243, nav()['Appearance'][1] + WIDTH_ROW)
+    click(*control_center(log_path, 'settings/default_width'))
 
 
 def click(x, y):
@@ -94,23 +79,20 @@ try:
     capture = wait(lambda: next(work.glob('input-*'), None), 'PTY missing')
     run('xdotool', 'windowfocus', '--sync', wid)
     time.sleep(.3)
-    geometry = run('xdotool', 'getwindowgeometry', '--shell', wid).decode()
-    width = int(re.search(r'WIDTH=(\d+)', geometry).group(1))
-    strip = float(re.search(r'strip = ([0-9.]+)px', log_path.read_text()).group(1))
     expected = b''
     for panel in ['history', 'settings']:
         key('alt+shift+h' if panel == 'history' else 'alt+shift+c')
         time.sleep(.3)
         terminal_keys()
         # Clicking a filter or a settings page must not give the sidebar Tab.
-        click(width - 330, strip + 83) if panel == 'history' else page('Window')
+        click(*control_center(log_path, 'history/filter/All')) if panel == 'history' else page('Window')
         terminal_keys()
         # App bindings still work while a sidebar is open.
         key('ctrl+shift+t')
         wait(lambda: len(list(work.glob('input-*'))) == (2 if panel == 'history' else 3), 'new-tab binding stopped working')
         key('alt+1')
         if panel == 'history':
-            click(width - 64, strip + 34)
+            click(*control_center(log_path, 'Search commands'))
             run('import', '-window', wid, str(work / 'search-focused.png'))
             run('xdotool', 'type', 'needle')
             time.sleep(.2)

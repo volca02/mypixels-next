@@ -9,6 +9,8 @@ import subprocess as sp
 import tempfile
 import time
 
+from ui_geometry import control_center, control_rect
+
 from PIL import Image
 
 root = Path(__file__).resolve().parents[1]
@@ -48,7 +50,7 @@ while True:
 keys = work / 'keys'
 os.mkfifo(keys)
 env = dict(os.environ, HOME=str(work), XDG_CONFIG_HOME=str(work / '.config'),
-           MYPIXELS_CONFIG=str(config), MYPIXELS_KEYS=str(keys), RUST_LOG='info')
+           MYPIXELS_CONFIG=str(config), MYPIXELS_KEYS=str(keys), RUST_LOG='info', MYPIXELS_UI_GEOMETRY='1')
 env.pop('WAYLAND_DISPLAY', None)
 binary = os.environ.get('MYPIXELS_BIN', str(root / 'target/debug/mypixels'))
 log_path = work / 'app.log'
@@ -119,14 +121,14 @@ try:
     assert strip <= 32, f'tab strip grew too tall: {strip}'
     terminal = shot('before-menu')
     menu_probe = (300, round(strip + 22))
-    click(20, strip / 2)
+    click(*control_center(log_path, 'tab_bar/menu'))
     assert shot('application-menu').getpixel(menu_probe) != terminal.getpixel(menu_probe), 'application menu missing'
     key('x')
     key('Escape')
     assert (work / 'input-0').read_bytes() == b'', 'menu keys leaked into the terminal'
     assert shot('menu-escaped').getpixel(menu_probe) == terminal.getpixel(menu_probe), 'Escape did not dismiss the menu'
-    click(20, strip / 2)
-    click(20, strip / 2)
+    click(*control_center(log_path, 'tab_bar/menu'))
+    click(*control_center(log_path, 'tab_bar/menu'))
     assert shot('menu-toggled').getpixel(menu_probe) == terminal.getpixel(menu_probe), 'second click did not close the menu'
     # Moving and right-clicking within the dismissed popup's former bounds
     # must reach the terminal controller even before egui drops its old layer.
@@ -135,12 +137,12 @@ try:
     assert shot('context-after-app-menu').getpixel(probe) != terminal.getpixel(probe), 'stale app menu swallowed right-click'
     key('Escape')
     assert (work / 'input-0').read_bytes() == b'', 'context-menu Escape leaked into the terminal'
-    click(20, strip / 2)
+    click(*control_center(log_path, 'tab_bar/menu'))
     click(350, 200)
     assert shot('menu-click-away').getpixel(menu_probe) == terminal.getpixel(menu_probe), 'click-away did not dismiss the menu'
-    for offset, name in [(114, 'keyboard-shortcuts'), (148, 'about-mypixels')]:
-        click(20, strip / 2)
-        click(80, strip + offset)
+    for action, name in [('show_shortcuts', 'keyboard-shortcuts'), ('show_about', 'about-mypixels')]:
+        click(*control_center(log_path, 'tab_bar/menu'))
+        click(*control_center(log_path, f'menu/{action}'))
         info = shot(name)
         center = (info.width // 2, info.height // 2)
         assert info.getpixel(center) != terminal.getpixel(center), f'{name} did not open'
@@ -148,13 +150,13 @@ try:
         key('Escape')
         assert (work / 'input-0').read_bytes() == b'', f'{name} keys leaked into the terminal'
         assert shot(name + '-closed').getpixel(center) == terminal.getpixel(center), f'{name} did not close'
-    click(20, strip / 2)
-    click(80, strip + 68)
+    click(*control_center(log_path, 'tab_bar/menu'))
+    click(*control_center(log_path, 'menu/show_config'))
     probe = (terminal.width - 8, terminal.height // 2)
     assert shot('menu-settings').getpixel(probe) != terminal.getpixel(probe), 'menu did not open settings'
     key('alt+shift+c')
     left, right, top, bottom = selected()
-    click(right + 18, strip / 2)  # Add immediately follows the last tab.
+    click(*control_center(log_path, 'tab_bar/add'))
     wait(lambda: len(spy()[0]) == 2, 'add button did not create a tab')
     click((left + right) / 2, strip / 2)
     wait(lambda: spy()[1] == 0, 'click did not select the first tab')
@@ -162,12 +164,13 @@ try:
     wait(lambda: (work / 'input-0').read_bytes() == b'x', 'typing did not reach the selected terminal')
     # Close cancels when released outside its target.
     left, right, top, bottom = selected()
-    run('xdotool', 'mousemove', '--window', wid, str(right - 12), str(round(strip / 2)), 'mousedown', '1')
+    close_x, close_y = control_center(log_path, 'tab_bar/close/1')
+    run('xdotool', 'mousemove', '--window', wid, str(round(close_x)), str(round(close_y)), 'mousedown', '1')
     run('xdotool', 'mousemove', '--window', wid, '100', '100', 'mouseup', '1')
     assert len(spy()[0]) == 2, 'cancelled close still removed a tab'
     key('alt+2')
     left, right, top, bottom = selected()
-    click(right - 12, strip / 2)
+    click(*control_center(log_path, 'tab_bar/close/2'))
     wait(lambda: len(spy()[0]) == 1, 'close button did not remove the tab')
     for total in range(2, 5):
         key('ctrl+shift+t')
@@ -190,7 +193,8 @@ try:
         wait(lambda: len(spy()[0]) == total, 'overflow tabs missing')
     left, right, top, bottom = selected()
     width = shot('overflow').width
-    assert right < width - 20 and right - left >= 90, 'active overflow tab or add button was clipped'
+    add = control_rect(log_path, 'tab_bar/add')
+    assert right < add[0] and add[2] <= width and right - left >= 90, 'active overflow tab or add button was clipped'
     key('alt+1')
     left, right, top, bottom = selected()
     assert left > 0 and right - left >= 90, 'first tab was not scrolled into view'
@@ -214,8 +218,8 @@ try:
     # An unmanaged X server does not raise a focused window. The detached
     # window can otherwise intercept clicks intended for the original one.
     run('xdotool', 'windowraise', wid)
-    click(20, strip / 2)
-    click(80, strip + 22)
+    click(*control_center(log_path, 'tab_bar/menu'))
+    click(*control_center(log_path, 'menu/new_window'))
     wait(lambda: len(windows()) == 3, 'menu did not create a new window')
     print('PASS: application menu, settings, shortcuts/about, dismissal and keyboard ownership; compact tabs, add/select/close/cancel, reorder, 20-tab overflow, middle close, native detach, new window; artifacts:', work, flush=True)
 finally:

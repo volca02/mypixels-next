@@ -312,6 +312,7 @@ pub(crate) fn icon_button(
     label: &str,
     c: &TermStyle,
 ) -> egui::Response {
+    record_control(ui, label, rect);
     let response = ui.interact(rect, ui.scope_id().with(label), egui::Sense::click());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
     if response.hovered() || response.has_focus() {
@@ -610,31 +611,83 @@ pub(crate) fn actions(ui: &mut egui::Ui, width: f32, primary: &str, cancel: &str
     let mut result = (false, false);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 10.0;
-        result.1 = ui
-            .add_sized([half, 34.0], egui::Button::new(cancel).fill(base).stroke(border).corner_radius(5.0))
-            .clicked();
-        result.0 = ui
-            .add_sized(
-                [half, 34.0],
-                egui::Button::new(egui::RichText::new(primary).color(accent))
-                    .fill(base.lerp_to_gamma(accent, 0.14))
-                    .stroke(egui::Stroke::new(1.0, accent))
-                    .corner_radius(5.0),
-            )
-            .clicked();
+        let cancel_response = ui.add(egui::Button::new(cancel).min_size(egui::vec2(half, 34.0))
+            .fill(base).stroke(border).corner_radius(5.0));
+        record_control(ui, cancel, cancel_response.rect);
+        result.1 = cancel_response.clicked();
+        let primary_response = ui.add(
+            egui::Button::new(egui::RichText::new(primary).color(accent)).min_size(egui::vec2(half, 34.0))
+                .fill(base.lerp_to_gamma(accent, 0.14)).stroke(egui::Stroke::new(1.0, accent)).corner_radius(5.0));
+        record_control(ui, primary, primary_response.rect);
+        result.0 = primary_response.clicked();
     });
     result
 }
 
+/// Measure the same component that will be painted, without registering live
+/// interactions. Callers supply a width; the child owns its natural height.
+pub(crate) fn measure_section(ui: &mut egui::Ui, id: impl std::hash::Hash + std::fmt::Debug, width: f32,
+    contents: impl FnOnce(&mut egui::Ui)) -> egui::Vec2 {
+    let mut child = ui.new_child(egui::UiBuilder::new().id_salt(("measure", id))
+        .max_rect(egui::Rect::from_min_size(ui.cursor().min, egui::vec2(width, f32::INFINITY)))
+        .layout(egui::Layout::top_down(egui::Align::Min)).sizing_pass().invisible());
+    child.set_width(width);
+    contents(&mut child);
+    child.min_size()
+}
+
+/// Paint a naturally sized footer at the bottom of a bounded container and
+/// return its remaining body rectangle. No caller needs to know footer internals.
+pub(crate) fn bottom_section<R>(ui: &mut egui::Ui, id: impl std::hash::Hash + Copy + std::fmt::Debug,
+    mut contents: impl FnMut(&mut egui::Ui) -> R) -> (egui::Rect, R) {
+    let available = ui.available_rect_before_wrap();
+    let size = measure_section(ui, id, available.width(), |ui| { contents(ui); });
+    let footer = available.with_min_y((available.bottom() - size.y).max(available.top()));
+    let body = available.with_max_y(footer.top());
+    let mut child = ui.new_child(egui::UiBuilder::new().id_salt(id).max_rect(footer));
+    child.set_clip_rect(ui.clip_rect().intersect(footer));
+    let result = contents(&mut child);
+    ui.expand_to_include_rect(footer);
+    (body, result)
+}
+
+#[cfg(test)]
+pub(crate) fn control_rect(ctx: &egui::Context, name: &str) -> Option<egui::Rect> {
+    ctx.data_mut(|data| data.get_temp(egui::Id::unique("control_geometry").with(name)))
+}
+
+/// Actual, clipped control bounds for diagnostics and interaction tests.
+/// Coordinates in the log are native pixels, like the application's pointer.
+pub(crate) fn record_control(ui: &egui::Ui, name: impl Into<String>, rect: egui::Rect) {
+    static LOG_GEOMETRY: std::sync::LazyLock<bool> = std::sync::LazyLock::new(||
+        std::env::var_os("MYPIXELS_UI_GEOMETRY").is_some());
+    if !cfg!(test) && !*LOG_GEOMETRY { return; }
+    if ui.is_sizing_pass() || !ui.is_visible() { return; }
+    let name = name.into();
+    let rect = rect.intersect(ui.clip_rect());
+    if !rect.is_positive() { return; }
+    let pixels_per_point = ui.pixels_per_point();
+    ui.ctx().data_mut(|data| {
+        let id = egui::Id::unique("control_geometry").with(&name);
+        if data.get_temp::<egui::Rect>(id) != Some(rect) {
+            data.insert_temp(id, rect);
+            if *LOG_GEOMETRY {
+                let rect = rect * pixels_per_point;
+                log::info!("ui control {name}: [{:.2}, {:.2}, {:.2}, {:.2}]", rect.left(), rect.top(), rect.right(), rect.bottom());
+            }
+        }
+    });
+}
+
 pub(crate) fn section(ui: &mut egui::Ui, title: &str, colors: &TermStyle, contents: impl FnOnce(&mut egui::Ui)) {
     let width = ui.available_width();
-    egui::Frame::new()
+    let frame = egui::Frame::new()
         .fill(colors.card)
         .stroke(egui::Stroke::new(1.0, colors.border))
         .corner_radius(9.0)
-        .inner_margin(14.0)
-        .show(ui, |ui| {
-            ui.set_width((width - 30.0).max(0.0));
+        .inner_margin(14.0);
+    frame.show(ui, |ui| {
+            ui.set_width((width - frame.total_margin().sum().x).max(0.0));
             ui.label(egui::RichText::new(title).font(egui::FontId::monospace(15.0)).strong().color(colors.fg));
             ui.add_space(6.0);
             contents(ui);

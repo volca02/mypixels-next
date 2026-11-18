@@ -10,6 +10,8 @@ import subprocess as sp
 import tempfile
 import time
 
+from ui_geometry import control_center
+
 from PIL import Image, ImageChops, ImageStat
 
 root = Path(__file__).resolve().parents[1]
@@ -31,7 +33,7 @@ foreground_color: '#dce4e7'
 accent_color: '#00dbe6'
 ''')
 env = dict(os.environ, HOME=str(work), XDG_CONFIG_HOME=str(work / '.config'),
-           MYPIXELS_CONFIG=str(config), RUST_LOG='info')
+           MYPIXELS_CONFIG=str(config), RUST_LOG='info', MYPIXELS_UI_GEOMETRY='1')
 env.pop('WAYLAND_DISPLAY', None)
 env.pop('MYPIXELS_KEYS', None)
 log_path = work / 'app.log'
@@ -67,30 +69,14 @@ def click(x, y):
     time.sleep(.15)
 
 
-def nav():
-    """Centers of the category cells, as the app reported them. Clicking by name
-    survives any change to the selector's layout; an offset guessed from a
-    screenshot moves the moment the grid does."""
-    line = [l for l in log_path.read_text().splitlines() if 'settings nav: ' in l][-1]
-    return {name: (float(x), float(y))
-            for name, x, y in re.findall(r'(\w+)=(-?[0-9.]+),(-?[0-9.]+)', line)}
-
-
 def page(name):
-    x, y = nav()[name]
-    click(x, y)
-
-
-def row_y(offset):
-    """A row inside the body, measured down from the selector's first row. The
-    body always starts under the selector, so a change to the selector's height
-    moves the rows with it - which a `strip + N` constant would not."""
-    return nav()['Appearance'][1] + offset
+    click(*control_center(log_path, f'settings/page/{name}'))
 
 
 def edit_width(value):
     # The default-width field, first row of Window dimensions.
-    run('xdotool', 'mousemove', '--window', wid, str(round(left + 243)), str(round(row_y(188))),
+    x, y = control_center(log_path, 'settings/default_width')
+    run('xdotool', 'mousemove', '--window', wid, str(round(x)), str(round(y)),
         'click', '--repeat', '2', '--delay', '70', '1')
     run('xdotool', 'key', 'ctrl+a')
     run('xdotool', 'type', str(value))
@@ -119,14 +105,14 @@ try:
     shot('window')
     edit_width(1234)
     shot('edited')
-    click(left + 330, height - 35)
+    click(*control_center(log_path, 'Save'))
     wait(lambda: 'default_width: 1234' in config.read_text(), 'Save did not persist the edited width')
     assert config.read_text().startswith('# Preserve this comment'), 'Save lost the configuration comment'
     saved = config.read_text()
     run('xdotool', 'key', 'alt+shift+c')
     time.sleep(.3)
     edit_width(9999)
-    click(left + 118, height - 35)
+    click(*control_center(log_path, 'Cancel'))
     wait(lambda: 'configuration and colors reloaded' in log_path.read_text(), 'Cancel did not reload saved settings')
     assert config.read_text() == saved, 'Cancel modified the saved configuration'
     run('xdotool', 'key', 'alt+shift+c')
@@ -143,12 +129,12 @@ try:
     page('Appearance')
     # Scroll past the workspace editor to reach Fonts.
     run('xdotool', 'mousemove', '--window', wid, str(width - 80), '620', 'click', '--repeat', '7', '--delay', '100', '5')
-    click(left + 291, row_y(532))
+    click(*control_center(log_path, 'settings/font/Terminal font'))
     shot('font-picker')
     # Clicking outside the picker leaves settings open.
     click(left + 75, strip + 34)
     run('xdotool', 'mousemove', '--window', wid, str(width - 80), '620', 'click', '--repeat', '20', '--delay', '30', '4')
-    click(left + 220, row_y(223))
+    click(*control_center(log_path, 'settings/color/Background'))
     color_popup = shot('color-picker')
     assert color_popup.getpixel((left - 30, height - 100)) != terminal.getpixel((left - 30, height - 100)), 'color picker missing'
     click(left + 75, strip + 34)

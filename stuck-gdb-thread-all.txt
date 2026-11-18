@@ -1,0 +1,398 @@
+Using host libthread_db library "/usr/lib/libthread_db.so.1".
+0x000056470ecf75d5 in rustix::backend::arch::asm::syscall5 () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/backend/linux_raw/arch/x86_64.rs:202
+202	    asm!(
+To enable execution of this file add
+	add-auto-load-safe-path /home/volca/dotfiles/.gdbinit
+line to your configuration file "/root/.config/gdb/gdbinit".
+To completely disable this security protection add
+	set auto-load safe-path /
+line to your configuration file "/root/.config/gdb/gdbinit".
+For more information about this security protection see the
+"Auto-loading safe path" section in the GDB manual.  E.g., run from the shell:
+	info "(gdb)Auto-loading safe path"
+of file /proc/677342/exe.
+Use `info auto-load python-scripts [REGEXP]' to list them.
+
+Thread 30 (Thread 0x7f1e78bff6c0 (LWP 677343) "blocking-1"):
+#0  0x00007f1e78d1e46d in syscall () from /usr/lib/libc.so.6
+#1  0x000056470e63ee0b in std::sys::sync::futex::unix::futex_wait () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sys/sync/futex/unix.rs:63
+#2  std::sys::sync::condvar::futex::Condvar::wait_optional_timeout () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sys/sync/condvar/futex.rs:49
+#3  std::sys::sync::condvar::futex::Condvar::wait_timeout () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sys/sync/condvar/futex.rs:37
+#4  std::sync::poison::condvar::Condvar::wait_timeout<blocking::Inner> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sync/poison/condvar.rs:330
+#5  blocking::Executor::main_loop () at src/lib.rs:298
+#6  blocking::{impl#0}::grow_pool::{closure#0} () at src/lib.rs:365
+#7  std::sys::backtrace::__rust_begin_short_backtrace<blocking::{impl#0}::grow_pool::{closure_env#0}, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sys/backtrace.rs:166
+#8  0x000056470e63f16a in std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure#0}<blocking::{impl#0}::grow_pool::{closure_env#0}, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/thread/lifecycle.rs:70
+#9  core::panic::unwind_safe::{impl#23}::call_once<(), std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<blocking::{impl#0}::grow_pool::{closure_env#0}, ()>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/panic/unwind_safe.rs:275
+#10 std::panicking::catch_unwind::do_call<core::panic::unwind_safe::AssertUnwindSafe<std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<blocking::{impl#0}::grow_pool::{closure_env#0}, ()>>, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/panicking.rs:576
+#11 std::panicking::catch_unwind<(), core::panic::unwind_safe::AssertUnwindSafe<std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<blocking::{impl#0}::grow_pool::{closure_env#0}, ()>>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/panicking.rs:544
+
+Thread 29 (Thread 0x7f1e789fe6c0 (LWP 677344) "async-io"):
+#0  0x00007f1e78d1e46d in syscall () from /usr/lib/libc.so.6
+#1  0x000056470eea7776 in std::sys::sync::futex::unix::futex_wait () at library/std/src/sys/sync/futex/unix.rs:63
+#2  std::sys::sync::mutex::futex::Mutex::lock_contended () at library/std/src/sys/sync/mutex/futex.rs:61
+#3  0x000056470e62a624 in std::sys::sync::mutex::futex::Mutex::lock () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sys/sync/mutex/futex.rs:33
+#4  std::sync::poison::mutex::Mutex::lock<polling::Events> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sync/poison/mutex.rs:492
+#5  async_io::reactor::Reactor::lock () at src/reactor.rs:189
+#6  async_io::driver::main_loop () at src/driver.rs:62
+#7  async_io::driver::unparker::{closure#0}::{closure#0} () at src/driver.rs:31
+#8  std::sys::backtrace::__rust_begin_short_backtrace<async_io::driver::unparker::{closure#0}::{closure_env#0}, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sys/backtrace.rs:166
+#9  0x000056470e62b774 in std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure#0}<async_io::driver::unparker::{closure#0}::{closure_env#0}, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/thread/lifecycle.rs:70
+#10 core::panic::unwind_safe::{impl#23}::call_once<(), std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<async_io::driver::unparker::{closure#0}::{closure_env#0}, ()>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/panic/unwind_safe.rs:275
+#11 std::panicking::catch_unwind::do_call<core::panic::unwind_safe::AssertUnwindSafe<std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<async_io::driver::unparker::{closure#0}::{closure_env#0}, ()>>, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/panicking.rs:576
+
+Thread 28 (Thread 0x7f1e787fd6c0 (LWP 677357) "session-dbus"):
+#0  0x00007f1e78d1e46d in syscall () from /usr/lib/libc.so.6
+#1  0x000056470e9a7e77 in std::sys::sync::futex::unix::futex_wait () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sys/sync/futex/unix.rs:63
+#2  std::sys::sync::thread_parking::futex::Parker::park () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sys/sync/thread_parking/futex.rs:55
+#3  std::thread::thread::Thread::park () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/thread/thread.rs:121
+#4  std::thread::functions::park () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/thread/functions.rs:533
+#5  futures_executor::local_pool::run_executor::{closure#0}<core::result::Result<(), zbus::error::Error>, futures_executor::local_pool::block_on::{closure_env#0}<mypixels::session::serve::{async_fn_env#0}<mypixels::{impl#2}::new::{closure#2}::{closure_env#0}>>> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-executor-0.3.34/src/local_pool.rs:98
+#6  std::thread::local::LocalKey::try_with<alloc::sync::Arc<futures_executor::local_pool::ThreadNotify, alloc::alloc::Global>, futures_executor::local_pool::run_executor::{closure_env#0}<core::result::Result<(), zbus::error::Error>, futures_executor::local_pool::block_on::{closure_env#0}<mypixels::session::serve::{async_fn_env#0}<mypixels::{impl#2}::new::{closure#2}::{closure_env#0}>>>, core::result::Result<(), zbus::error::Error>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/thread/local.rs:463
+#7  std::thread::local::LocalKey::with<alloc::sync::Arc<futures_executor::local_pool::ThreadNotify, alloc::alloc::Global>, futures_executor::local_pool::run_executor::{closure_env#0}<core::result::Result<(), zbus::error::Error>, futures_executor::local_pool::block_on::{closure_env#0}<mypixels::session::serve::{async_fn_env#0}<mypixels::{impl#2}::new::{closure#2}::{closure_env#0}>>>, core::result::Result<(), zbus::error::Error>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/thread/local.rs:427
+#8  futures_executor::local_pool::run_executor<core::result::Result<(), zbus::error::Error>, futures_executor::local_pool::block_on::{closure_env#0}<mypixels::session::serve::{async_fn_env#0}<mypixels::{impl#2}::new::{closure#2}::{closure_env#0}>>> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-executor-0.3.34/src/local_pool.rs:85
+#9  futures_executor::local_pool::block_on<mypixels::session::serve::{async_fn_env#0}<mypixels::{impl#2}::new::{closure#2}::{closure_env#0}>> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-executor-0.3.34/src/local_pool.rs:315
+#10 mypixels::session::start::{closure#0}<mypixels::{impl#2}::new::{closure#2}::{closure_env#0}> () at src/session.rs:116
+#11 std::sys::backtrace::__rust_begin_short_backtrace<mypixels::session::start::{closure_env#0}<mypixels::{impl#2}::new::{closure#2}::{closure_env#0}>, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sys/backtrace.rs:166
+
+Thread 27 (Thread 0x7f1e6bbff6c0 (LWP 677358) "mcp-server"):
+#0  0x00007f1e78ca08f2 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f1e78d22638 in accept4 () from /usr/lib/libc.so.6
+#2  0x000056470e9af567 in std::sys::net::connection::socket::unix::{impl#0}::accept::{closure#0} () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sys/net/connection/socket/unix.rs:261
+#3  std::sys::pal::unix::cvt_r<i32, std::sys::net::connection::socket::unix::{impl#0}::accept::{closure_env#0}> () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sys/pal/unix/mod.rs:250
+#4  std::sys::net::connection::socket::unix::Socket::accept () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sys/net/connection/socket/unix.rs:261
+#5  std::os::unix::net::listener::UnixListener::accept () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/os/unix/net/listener.rs:184
+#6  std::os::unix::net::listener::{impl#9}::next () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/os/unix/net/listener.rs:421
+#7  mypixels::mcp::start::{closure#0} () at src/mcp.rs:63
+#8  std::sys::backtrace::__rust_begin_short_backtrace<mypixels::mcp::start::{closure_env#0}, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sys/backtrace.rs:166
+#9  0x000056470ea55e81 in std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure#0}<mypixels::mcp::start::{closure_env#0}, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/thread/lifecycle.rs:70
+#10 core::panic::unwind_safe::{impl#23}::call_once<(), std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<mypixels::mcp::start::{closure_env#0}, ()>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/panic/unwind_safe.rs:275
+#11 std::panicking::catch_unwind::do_call<core::panic::unwind_safe::AssertUnwindSafe<std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<mypixels::mcp::start::{closure_env#0}, ()>>, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/panicking.rs:576
+
+Thread 26 (Thread 0x7f1e6b9fe6c0 (LWP 677359) "desktop-notific"):
+#0  0x00007f1e78d1e46d in syscall () from /usr/lib/libc.so.6
+#1  0x000056470e9ae858 in std::sys::sync::futex::unix::futex_wait () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sys/sync/futex/unix.rs:63
+#2  std::sys::sync::thread_parking::futex::Parker::park () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sys/sync/thread_parking/futex.rs:55
+#3  std::thread::thread::Thread::park () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/thread/thread.rs:121
+#4  std::thread::functions::park () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/thread/functions.rs:533
+#5  futures_executor::local_pool::run_executor::{closure#0}<core::result::Result<(), zbus::error::Error>, futures_executor::local_pool::block_on::{closure_env#0}<mypixels::notifications::serve::{async_fn_env#0}>> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-executor-0.3.34/src/local_pool.rs:98
+#6  std::thread::local::LocalKey::try_with<alloc::sync::Arc<futures_executor::local_pool::ThreadNotify, alloc::alloc::Global>, futures_executor::local_pool::run_executor::{closure_env#0}<core::result::Result<(), zbus::error::Error>, futures_executor::local_pool::block_on::{closure_env#0}<mypixels::notifications::serve::{async_fn_env#0}>>, core::result::Result<(), zbus::error::Error>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/thread/local.rs:463
+#7  std::thread::local::LocalKey::with<alloc::sync::Arc<futures_executor::local_pool::ThreadNotify, alloc::alloc::Global>, futures_executor::local_pool::run_executor::{closure_env#0}<core::result::Result<(), zbus::error::Error>, futures_executor::local_pool::block_on::{closure_env#0}<mypixels::notifications::serve::{async_fn_env#0}>>, core::result::Result<(), zbus::error::Error>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/thread/local.rs:427
+#8  futures_executor::local_pool::run_executor<core::result::Result<(), zbus::error::Error>, futures_executor::local_pool::block_on::{closure_env#0}<mypixels::notifications::serve::{async_fn_env#0}>> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-executor-0.3.34/src/local_pool.rs:85
+#9  futures_executor::local_pool::block_on<mypixels::notifications::serve::{async_fn_env#0}> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-executor-0.3.34/src/local_pool.rs:315
+#10 mypixels::notifications::{impl#2}::new::{closure#0} () at src/notifications.rs:289
+#11 std::sys::backtrace::__rust_begin_short_backtrace<mypixels::notifications::{impl#2}::new::{closure_env#0}, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sys/backtrace.rs:166
+
+Thread 25 (Thread 0x7f1e6b7fd6c0 (LWP 677360) "mypixels"):
+#0  0x00007f1e78ca08f2 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f1e78ce4aad in clock_nanosleep () from /usr/lib/libc.so.6
+#2  0x000056470ea0a05c in std::sys::thread::unix::sleep::nanosleep () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sys/thread/unix.rs:567
+#3  std::sys::thread::unix::sleep () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sys/thread/unix.rs:593
+#4  std::thread::functions::sleep () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/thread/functions.rs:293
+#5  mypixels::{impl#2}::new::{closure#5} () at src/main.rs:663
+#6  0x000056470e9ae67e in std::sys::backtrace::__rust_begin_short_backtrace<mypixels::{impl#2}::new::{closure_env#5}, !> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sys/backtrace.rs:166
+#7  0x000056470e9f9a78 in std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure#0}<mypixels::{impl#2}::new::{closure_env#5}, !> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/thread/lifecycle.rs:70
+#8  0x000056470eb785fe in core::panic::unwind_safe::{impl#23}::call_once<!, std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<mypixels::{impl#2}::new::{closure_env#5}, !>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/panic/unwind_safe.rs:275
+#9  0x000056470ea55adc in std::panicking::catch_unwind::do_call<core::panic::unwind_safe::AssertUnwindSafe<std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<mypixels::{impl#2}::new::{closure_env#5}, !>>, !> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/panicking.rs:576
+#10 std::panicking::catch_unwind<!, core::panic::unwind_safe::AssertUnwindSafe<std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<mypixels::{impl#2}::new::{closure_env#5}, !>>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/panicking.rs:544
+#11 std::panic::catch_unwind<core::panic::unwind_safe::AssertUnwindSafe<std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<mypixels::{impl#2}::new::{closure_env#5}, !>>, !> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/panic.rs:359
+
+Thread 24 (Thread 0x7f1e6b5fc6c0 (LWP 677361) "zbus::Connectio"):
+#0  0x000056470ecf75d5 in rustix::backend::arch::asm::syscall5 () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/backend/linux_raw/arch/x86_64.rs:202
+#1  rustix::backend::event::syscalls::epoll_wait () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/backend/linux_raw/arch/mod.rs:117
+#2  rustix::event::epoll::wait<&std::os::fd::owned::OwnedFd, rustix::buffer::SpareCapacity<rustix::event::epoll::Event>> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/event/epoll.rs:215
+#3  polling::epoll::Poller::wait_deadline () at src/epoll.rs:219
+#4  polling::Poller::wait_impl () at src/lib.rs:754
+#5  0x000056470e63019f in polling::Poller::wait () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/polling-3.11.0/src/lib.rs:732
+#6  async_io::reactor::ReactorLock::react () at src/reactor.rs:302
+#7  0x000056470f3d1b18 in async_io::driver::block_on::{closure#1}<(), zbus::connection::builder::start_internal_executor::{closure#0}::{async_block_env#0}> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/async-io-2.6.0/src/driver.rs:257
+#8  std::thread::local::LocalKey::try_with<core::cell::RefCell<(parking::Parker, core::task::wake::Waker, alloc::sync::Arc<core::sync::atomic::Atomic<bool>, alloc::alloc::Global>)>, async_io::driver::block_on::{closure_env#1}<(), zbus::connection::builder::start_internal_executor::{closure#0}::{async_block_env#0}>, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/thread/local.rs:463
+#9  std::thread::local::LocalKey::with<core::cell::RefCell<(parking::Parker, core::task::wake::Waker, alloc::sync::Arc<core::sync::atomic::Atomic<bool>, alloc::alloc::Global>)>, async_io::driver::block_on::{closure_env#1}<(), zbus::connection::builder::start_internal_executor::{closure#0}::{async_block_env#0}>, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/thread/local.rs:427
+#10 async_io::driver::block_on<(), zbus::connection::builder::start_internal_executor::{closure#0}::{async_block_env#0}> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/async-io-2.6.0/src/driver.rs:180
+#11 zbus::utils::block_on<zbus::connection::builder::start_internal_executor::{closure#0}::{async_block_env#0}> () at src/utils.rs:34
+
+Thread 23 (Thread 0x7f1e6b3fb6c0 (LWP 677362) "zbus::Connectio"):
+#0  0x00007f1e78d1e46d in syscall () from /usr/lib/libc.so.6
+#1  0x000056470ecdc3c5 in std::sys::sync::futex::unix::futex_wait () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sys/sync/futex/unix.rs:63
+#2  std::sys::sync::condvar::futex::Condvar::wait_optional_timeout () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sys/sync/condvar/futex.rs:49
+#3  std::sys::sync::condvar::futex::Condvar::wait () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sys/sync/condvar/futex.rs:33
+#4  std::sync::poison::condvar::Condvar::wait<()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sync/poison/condvar.rs:128
+#5  parking::Inner::park () at src/lib.rs:377
+#6  0x000056470f3d1939 in parking::Parker::park () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/parking-2.2.1/src/lib.rs:132
+#7  async_io::driver::block_on::{closure#1}<(), zbus::connection::builder::start_internal_executor::{closure#0}::{async_block_env#0}> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/async-io-2.6.0/src/driver.rs:290
+#8  std::thread::local::LocalKey::try_with<core::cell::RefCell<(parking::Parker, core::task::wake::Waker, alloc::sync::Arc<core::sync::atomic::Atomic<bool>, alloc::alloc::Global>)>, async_io::driver::block_on::{closure_env#1}<(), zbus::connection::builder::start_internal_executor::{closure#0}::{async_block_env#0}>, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/thread/local.rs:463
+#9  std::thread::local::LocalKey::with<core::cell::RefCell<(parking::Parker, core::task::wake::Waker, alloc::sync::Arc<core::sync::atomic::Atomic<bool>, alloc::alloc::Global>)>, async_io::driver::block_on::{closure_env#1}<(), zbus::connection::builder::start_internal_executor::{closure#0}::{async_block_env#0}>, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/thread/local.rs:427
+#10 async_io::driver::block_on<(), zbus::connection::builder::start_internal_executor::{closure#0}::{async_block_env#0}> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/async-io-2.6.0/src/driver.rs:180
+#11 zbus::utils::block_on<zbus::connection::builder::start_internal_executor::{closure#0}::{async_block_env#0}> () at src/utils.rs:34
+
+Thread 22 (Thread 0x7f1e693ff6c0 (LWP 677363) "mypixels:cs0"):
+#0  0x00007f1e78ca08f2 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f1e78c94c79 in ?? () from /usr/lib/libc.so.6
+#2  0x00007f1e78c974ec in pthread_cond_wait () from /usr/lib/libc.so.6
+#3  0x00007f1e50e2710e in ?? () from /usr/lib/libgallium-26.2.5-arch1.1.so
+#4  0x00007f1e50ddc2cd in ?? () from /usr/lib/libgallium-26.2.5-arch1.1.so
+#5  0x00007f1e50e2704d in ?? () from /usr/lib/libgallium-26.2.5-arch1.1.so
+#6  0x00007f1e78c98042 in ?? () from /usr/lib/libc.so.6
+#7  0x00007f1e78d2072c in ?? () from /usr/lib/libc.so.6
+
+Thread 21 (Thread 0x7f1e689fb6c0 (LWP 677364) "mypixel:disk$0"):
+#0  0x00007f1e78ca08f2 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f1e78c94c79 in ?? () from /usr/lib/libc.so.6
+#2  0x00007f1e78c974ec in pthread_cond_wait () from /usr/lib/libc.so.6
+#3  0x00007f1e50e2710e in ?? () from /usr/lib/libgallium-26.2.5-arch1.1.so
+#4  0x00007f1e50ddc2cd in ?? () from /usr/lib/libgallium-26.2.5-arch1.1.so
+#5  0x00007f1e50e2704d in ?? () from /usr/lib/libgallium-26.2.5-arch1.1.so
+#6  0x00007f1e78c98042 in ?? () from /usr/lib/libc.so.6
+#7  0x00007f1e78d2072c in ?? () from /usr/lib/libc.so.6
+
+Thread 20 (Thread 0x7f1e61fff6c0 (LWP 677365) "mypixels:sh0"):
+#0  0x00007f1e78ca08f2 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f1e78c94c79 in ?? () from /usr/lib/libc.so.6
+#2  0x00007f1e78c974ec in pthread_cond_wait () from /usr/lib/libc.so.6
+#3  0x00007f1e50e2710e in ?? () from /usr/lib/libgallium-26.2.5-arch1.1.so
+#4  0x00007f1e50ddc2cd in ?? () from /usr/lib/libgallium-26.2.5-arch1.1.so
+#5  0x00007f1e50e2704d in ?? () from /usr/lib/libgallium-26.2.5-arch1.1.so
+#6  0x00007f1e78c98042 in ?? () from /usr/lib/libc.so.6
+#7  0x00007f1e78d2072c in ?? () from /usr/lib/libc.so.6
+
+Thread 19 (Thread 0x7f1e617fe6c0 (LWP 677366) "mypixe:sh_opt0"):
+#0  0x00007f1e78ca08f2 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f1e78c94c79 in ?? () from /usr/lib/libc.so.6
+#2  0x00007f1e78c974ec in pthread_cond_wait () from /usr/lib/libc.so.6
+#3  0x00007f1e50e2710e in ?? () from /usr/lib/libgallium-26.2.5-arch1.1.so
+#4  0x00007f1e50ddc2cd in ?? () from /usr/lib/libgallium-26.2.5-arch1.1.so
+#5  0x00007f1e50e2704d in ?? () from /usr/lib/libgallium-26.2.5-arch1.1.so
+#6  0x00007f1e78c98042 in ?? () from /usr/lib/libc.so.6
+#7  0x00007f1e78d2072c in ?? () from /usr/lib/libc.so.6
+
+Thread 18 (Thread 0x7f1e60bfd6c0 (LWP 677367) "mypixe:traceq0"):
+#0  0x00007f1e78ca08f2 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f1e78c94c79 in ?? () from /usr/lib/libc.so.6
+#2  0x00007f1e78c974ec in pthread_cond_wait () from /usr/lib/libc.so.6
+#3  0x00007f1e50e2710e in ?? () from /usr/lib/libgallium-26.2.5-arch1.1.so
+#4  0x00007f1e50ddc2cd in ?? () from /usr/lib/libgallium-26.2.5-arch1.1.so
+#5  0x00007f1e50e2704d in ?? () from /usr/lib/libgallium-26.2.5-arch1.1.so
+#6  0x00007f1e78c98042 in ?? () from /usr/lib/libc.so.6
+#7  0x00007f1e78d2072c in ?? () from /usr/lib/libc.so.6
+
+Thread 17 (Thread 0x7f1e419ff6c0 (LWP 677368) "mypixels:gdrv0"):
+#0  0x00007f1e78ca08f2 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f1e78c94c79 in ?? () from /usr/lib/libc.so.6
+#2  0x00007f1e78c974ec in pthread_cond_wait () from /usr/lib/libc.so.6
+#3  0x00007f1e50e2710e in ?? () from /usr/lib/libgallium-26.2.5-arch1.1.so
+#4  0x00007f1e50ddc2cd in ?? () from /usr/lib/libgallium-26.2.5-arch1.1.so
+#5  0x00007f1e50e2704d in ?? () from /usr/lib/libgallium-26.2.5-arch1.1.so
+#6  0x00007f1e78c98042 in ?? () from /usr/lib/libc.so.6
+#7  0x00007f1e78d2072c in ?? () from /usr/lib/libc.so.6
+
+Thread 16 (Thread 0x7f1e411fe6c0 (LWP 677369) "mypixels:gl0"):
+#0  0x00007f1e78ca08f2 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f1e78c94c79 in ?? () from /usr/lib/libc.so.6
+#2  0x00007f1e78c974ec in pthread_cond_wait () from /usr/lib/libc.so.6
+#3  0x00007f1e50e2710e in ?? () from /usr/lib/libgallium-26.2.5-arch1.1.so
+#4  0x00007f1e50ddc2cd in ?? () from /usr/lib/libgallium-26.2.5-arch1.1.so
+#5  0x00007f1e50e2704d in ?? () from /usr/lib/libgallium-26.2.5-arch1.1.so
+#6  0x00007f1e78c98042 in ?? () from /usr/lib/libc.so.6
+#7  0x00007f1e78d2072c in ?? () from /usr/lib/libc.so.6
+
+Thread 15 (Thread 0x7f1e409fd6c0 (LWP 677370) "mypixel:disk$0"):
+#0  0x00007f1e78ca08f2 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f1e78c94c79 in ?? () from /usr/lib/libc.so.6
+#2  0x00007f1e78c974ec in pthread_cond_wait () from /usr/lib/libc.so.6
+#3  0x00007f1e6a1933de in ?? () from /usr/lib/libvulkan_radeon.so
+#4  0x00007f1e6a15cded in ?? () from /usr/lib/libvulkan_radeon.so
+#5  0x00007f1e6a19334d in ?? () from /usr/lib/libvulkan_radeon.so
+#6  0x00007f1e78c98042 in ?? () from /usr/lib/libc.so.6
+#7  0x00007f1e78d2072c in ?? () from /usr/lib/libc.so.6
+
+Thread 14 (Thread 0x7f1e23fff6c0 (LWP 677371) "mypixel:disk$0"):
+#0  0x00007f1e78ca08f2 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f1e78c94c79 in ?? () from /usr/lib/libc.so.6
+#2  0x00007f1e78c974ec in pthread_cond_wait () from /usr/lib/libc.so.6
+#3  0x00007f1e6a1933de in ?? () from /usr/lib/libvulkan_radeon.so
+#4  0x00007f1e6a15cded in ?? () from /usr/lib/libvulkan_radeon.so
+#5  0x00007f1e6a19334d in ?? () from /usr/lib/libvulkan_radeon.so
+#6  0x00007f1e78c98042 in ?? () from /usr/lib/libc.so.6
+#7  0x00007f1e78d2072c in ?? () from /usr/lib/libc.so.6
+
+Thread 13 (Thread 0x7f1e505fc6c0 (LWP 677372) "smithay-clipboa"):
+#0  0x000056470ecf75d5 in rustix::backend::arch::asm::syscall5 () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/backend/linux_raw/arch/x86_64.rs:202
+#1  rustix::backend::event::syscalls::epoll_wait () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/backend/linux_raw/arch/mod.rs:117
+#2  rustix::event::epoll::wait<&std::os::fd::owned::OwnedFd, rustix::buffer::SpareCapacity<rustix::event::epoll::Event>> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/event/epoll.rs:215
+#3  polling::epoll::Poller::wait_deadline () at src/epoll.rs:219
+#4  polling::Poller::wait_impl () at src/lib.rs:754
+#5  0x000056470e64165e in polling::Poller::wait () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/polling-3.11.0/src/lib.rs:732
+#6  calloop::sys::Poll::poll () at src/sys.rs:237
+#7  0x000056470ee75934 in calloop::loop_logic::EventLoop::dispatch_events<smithay_clipboard::state::State> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/calloop-0.14.5/src/loop_logic.rs:469
+#8  calloop::loop_logic::EventLoop::dispatch<smithay_clipboard::state::State, core::option::Option<core::time::Duration>> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/calloop-0.14.5/src/loop_logic.rs:632
+#9  smithay_clipboard::worker::worker_impl () at src/worker.rs:97
+#10 0x000056470ee6530d in smithay_clipboard::worker::spawn::{closure#0} () at src/worker.rs:23
+#11 std::sys::backtrace::__rust_begin_short_backtrace<smithay_clipboard::worker::spawn::{closure_env#0}, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sys/backtrace.rs:166
+
+Thread 12 (Thread 0x7f1e503fb6c0 (LWP 677373) "theme-files"):
+#0  0x00007f1e78d1e46d in syscall () from /usr/lib/libc.so.6
+#1  0x000056470ea16757 in std::sys::sync::futex::unix::futex_wait () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sys/sync/futex/unix.rs:63
+#2  std::sys::sync::thread_parking::futex::Parker::park () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sys/sync/thread_parking/futex.rs:55
+#3  std::thread::thread::Thread::park () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/thread/thread.rs:121
+#4  std::sync::mpmc::context::Context::wait_until () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sync/mpmc/context.rs:143
+#5  std::sync::mpmc::list::{impl#3}::recv::{closure#1}<alloc::vec::Vec<std::path::PathBuf, alloc::alloc::Global>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sync/mpmc/list.rs:453
+#6  0x000056470eae34ef in std::sync::mpmc::context::{impl#0}::with::{closure#0}<std::sync::mpmc::list::{impl#3}::recv::{closure_env#1}<alloc::vec::Vec<std::path::PathBuf, alloc::alloc::Global>>, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sync/mpmc/context.rs:49
+#7  std::sync::mpmc::context::{impl#0}::with::{closure#1}<std::sync::mpmc::list::{impl#3}::recv::{closure_env#1}<alloc::vec::Vec<std::path::PathBuf, alloc::alloc::Global>>, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sync/mpmc/context.rs:57
+#8  std::thread::local::LocalKey::try_with<core::cell::Cell<core::option::Option<std::sync::mpmc::context::Context>>, std::sync::mpmc::context::{impl#0}::with::{closure_env#1}<std::sync::mpmc::list::{impl#3}::recv::{closure_env#1}<alloc::vec::Vec<std::path::PathBuf, alloc::alloc::Global>>, ()>, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/thread/local.rs:463
+#9  std::sync::mpmc::context::Context::with<std::sync::mpmc::list::{impl#3}::recv::{closure_env#1}<alloc::vec::Vec<std::path::PathBuf, alloc::alloc::Global>>, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sync/mpmc/context.rs:53
+#10 std::sync::mpmc::list::Channel::recv<alloc::vec::Vec<std::path::PathBuf, alloc::alloc::Global>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sync/mpmc/list.rs:442
+#11 0x000056470e9a6e6b in std::sync::mpmc::Receiver::recv<alloc::vec::Vec<std::path::PathBuf, alloc::alloc::Global>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sync/mpmc/mod.rs:1025
+
+Thread 11 (Thread 0x7f1e237fe6c0 (LWP 677374) "clipboard"):
+#0  0x00007f1e78ca08f2 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f1e78d112e5 in poll () from /usr/lib/libc.so.6
+#2  0x000056470e9e534d in mypixels::clipboard::native::wait<mypixels::clipboard::native::ext::State> () at src/clipboard/native.rs:115
+#3  mypixels::clipboard::native::ext::Client::wait () at src/clipboard/native.rs:170
+#4  mypixels::clipboard::native::Native::wait () at src/clipboard/native.rs:313
+#5  mypixels::clipboard::{impl#4}::new::{closure#0}<mypixels::{impl#3}::make_window::{closure_env#1}> () at src/clipboard.rs:134
+#6  0x000056470e9a6b9e in std::sys::backtrace::__rust_begin_short_backtrace<mypixels::clipboard::{impl#4}::new::{closure_env#0}<mypixels::{impl#3}::make_window::{closure_env#1}>, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sys/backtrace.rs:166
+#7  0x000056470ea550a1 in std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure#0}<mypixels::clipboard::{impl#4}::new::{closure_env#0}<mypixels::{impl#3}::make_window::{closure_env#1}>, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/thread/lifecycle.rs:70
+#8  core::panic::unwind_safe::{impl#23}::call_once<(), std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<mypixels::clipboard::{impl#4}::new::{closure_env#0}<mypixels::{impl#3}::make_window::{closure_env#1}>, ()>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/panic/unwind_safe.rs:275
+#9  std::panicking::catch_unwind::do_call<core::panic::unwind_safe::AssertUnwindSafe<std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<mypixels::clipboard::{impl#4}::new::{closure_env#0}<mypixels::{impl#3}::make_window::{closure_env#1}>, ()>>, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/panicking.rs:576
+#10 std::panicking::catch_unwind<(), core::panic::unwind_safe::AssertUnwindSafe<std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<mypixels::clipboard::{impl#4}::new::{closure_env#0}<mypixels::{impl#3}::make_window::{closure_env#1}>, ()>>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/panicking.rs:544
+#11 std::panic::catch_unwind<core::panic::unwind_safe::AssertUnwindSafe<std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<mypixels::clipboard::{impl#4}::new::{closure_env#0}<mypixels::{impl#3}::make_window::{closure_env#1}>, ()>>, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/panic.rs:359
+
+Thread 10 (Thread 0x7f1e235fd6c0 (LWP 677375) "clipboard-read"):
+#0  0x00007f1e78d1e46d in syscall () from /usr/lib/libc.so.6
+#1  0x000056470ea23247 in std::sys::sync::futex::unix::futex_wait () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sys/sync/futex/unix.rs:63
+#2  std::sys::sync::thread_parking::futex::Parker::park () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sys/sync/thread_parking/futex.rs:55
+#3  std::thread::thread::Thread::park () at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/thread/thread.rs:121
+#4  std::sync::mpmc::context::Context::wait_until () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sync/mpmc/context.rs:143
+#5  std::sync::mpmc::array::{impl#1}::recv::{closure#1}<alloc::vec::Vec<std::path::PathBuf, alloc::alloc::Global>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sync/mpmc/array.rs:402
+#6  0x000056470e9b1525 in std::sync::mpmc::context::{impl#0}::with::{closure#0}<std::sync::mpmc::array::{impl#1}::recv::{closure_env#1}<mypixels::clipboard::native::ReadJob>, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sync/mpmc/context.rs:49
+#7  std::sync::mpmc::context::{impl#0}::with::{closure#1}<std::sync::mpmc::array::{impl#1}::recv::{closure_env#1}<mypixels::clipboard::native::ReadJob>, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sync/mpmc/context.rs:57
+#8  std::thread::local::LocalKey::try_with<core::cell::Cell<core::option::Option<std::sync::mpmc::context::Context>>, std::sync::mpmc::context::{impl#0}::with::{closure_env#1}<std::sync::mpmc::array::{impl#1}::recv::{closure_env#1}<mypixels::clipboard::native::ReadJob>, ()>, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/thread/local.rs:463
+#9  std::sync::mpmc::context::Context::with<std::sync::mpmc::array::{impl#1}::recv::{closure_env#1}<mypixels::clipboard::native::ReadJob>, ()> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sync/mpmc/context.rs:53
+#10 std::sync::mpmc::array::Channel::recv<mypixels::clipboard::native::ReadJob> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sync/mpmc/array.rs:390
+#11 std::sync::mpmc::Receiver::recv<mypixels::clipboard::native::ReadJob> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sync/mpmc/mod.rs:1024
+
+Thread 9 (Thread 0x7f1e233fc6c0 (LWP 677377) "PTY reader"):
+#0  0x000056470ecf75d5 in rustix::backend::arch::asm::syscall5 () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/backend/linux_raw/arch/x86_64.rs:202
+#1  rustix::backend::event::syscalls::epoll_wait () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/backend/linux_raw/arch/mod.rs:117
+#2  rustix::event::epoll::wait<&std::os::fd::owned::OwnedFd, rustix::buffer::SpareCapacity<rustix::event::epoll::Event>> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/event/epoll.rs:215
+#3  polling::epoll::Poller::wait_deadline () at src/epoll.rs:219
+#4  polling::Poller::wait_impl () at src/lib.rs:754
+#5  0x000056470e9acf4a in polling::Poller::wait () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/polling-3.11.0/src/lib.rs:732
+#6  alacritty_terminal::event_loop::{impl#0}::spawn::{closure#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener> () at vendor/alacritty_terminal/src/event_loop.rs:234
+#7  std::sys::backtrace::__rust_begin_short_backtrace<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sys/backtrace.rs:166
+#8  0x000056470ea5592a in std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/thread/lifecycle.rs:70
+#9  core::panic::unwind_safe::{impl#23}::call_once<(alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State), std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/panic/unwind_safe.rs:275
+#10 std::panicking::catch_unwind::do_call<core::panic::unwind_safe::AssertUnwindSafe<std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)>>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/panicking.rs:576
+#11 std::panicking::catch_unwind<(alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State), core::panic::unwind_safe::AssertUnwindSafe<std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)>>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/panicking.rs:544
+
+Thread 8 (Thread 0x7f1e229076c0 (LWP 679051) "PTY reader"):
+#0  0x000056470ecf75d5 in rustix::backend::arch::asm::syscall5 () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/backend/linux_raw/arch/x86_64.rs:202
+#1  rustix::backend::event::syscalls::epoll_wait () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/backend/linux_raw/arch/mod.rs:117
+#2  rustix::event::epoll::wait<&std::os::fd::owned::OwnedFd, rustix::buffer::SpareCapacity<rustix::event::epoll::Event>> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/event/epoll.rs:215
+#3  polling::epoll::Poller::wait_deadline () at src/epoll.rs:219
+#4  polling::Poller::wait_impl () at src/lib.rs:754
+#5  0x000056470e9acf4a in polling::Poller::wait () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/polling-3.11.0/src/lib.rs:732
+#6  alacritty_terminal::event_loop::{impl#0}::spawn::{closure#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener> () at vendor/alacritty_terminal/src/event_loop.rs:234
+#7  std::sys::backtrace::__rust_begin_short_backtrace<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sys/backtrace.rs:166
+#8  0x000056470ea5592a in std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/thread/lifecycle.rs:70
+#9  core::panic::unwind_safe::{impl#23}::call_once<(alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State), std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/panic/unwind_safe.rs:275
+#10 std::panicking::catch_unwind::do_call<core::panic::unwind_safe::AssertUnwindSafe<std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)>>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/panicking.rs:576
+#11 std::panicking::catch_unwind<(alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State), core::panic::unwind_safe::AssertUnwindSafe<std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)>>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/panicking.rs:544
+
+Thread 7 (Thread 0x7f1e220356c0 (LWP 679972) "PTY reader"):
+#0  0x000056470ecf75d5 in rustix::backend::arch::asm::syscall5 () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/backend/linux_raw/arch/x86_64.rs:202
+#1  rustix::backend::event::syscalls::epoll_wait () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/backend/linux_raw/arch/mod.rs:117
+#2  rustix::event::epoll::wait<&std::os::fd::owned::OwnedFd, rustix::buffer::SpareCapacity<rustix::event::epoll::Event>> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/event/epoll.rs:215
+#3  polling::epoll::Poller::wait_deadline () at src/epoll.rs:219
+#4  polling::Poller::wait_impl () at src/lib.rs:754
+#5  0x000056470e9acf4a in polling::Poller::wait () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/polling-3.11.0/src/lib.rs:732
+#6  alacritty_terminal::event_loop::{impl#0}::spawn::{closure#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener> () at vendor/alacritty_terminal/src/event_loop.rs:234
+#7  std::sys::backtrace::__rust_begin_short_backtrace<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sys/backtrace.rs:166
+#8  0x000056470ea5592a in std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/thread/lifecycle.rs:70
+#9  core::panic::unwind_safe::{impl#23}::call_once<(alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State), std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/panic/unwind_safe.rs:275
+#10 std::panicking::catch_unwind::do_call<core::panic::unwind_safe::AssertUnwindSafe<std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)>>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/panicking.rs:576
+#11 std::panicking::catch_unwind<(alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State), core::panic::unwind_safe::AssertUnwindSafe<std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)>>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/panicking.rs:544
+
+Thread 6 (Thread 0x7f1df6bff6c0 (LWP 680569) "PTY reader"):
+#0  0x000056470ecf75d5 in rustix::backend::arch::asm::syscall5 () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/backend/linux_raw/arch/x86_64.rs:202
+#1  rustix::backend::event::syscalls::epoll_wait () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/backend/linux_raw/arch/mod.rs:117
+#2  rustix::event::epoll::wait<&std::os::fd::owned::OwnedFd, rustix::buffer::SpareCapacity<rustix::event::epoll::Event>> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/event/epoll.rs:215
+#3  polling::epoll::Poller::wait_deadline () at src/epoll.rs:219
+#4  polling::Poller::wait_impl () at src/lib.rs:754
+#5  0x000056470e9acf4a in polling::Poller::wait () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/polling-3.11.0/src/lib.rs:732
+#6  alacritty_terminal::event_loop::{impl#0}::spawn::{closure#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener> () at vendor/alacritty_terminal/src/event_loop.rs:234
+#7  std::sys::backtrace::__rust_begin_short_backtrace<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sys/backtrace.rs:166
+#8  0x000056470ea5592a in std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/thread/lifecycle.rs:70
+#9  core::panic::unwind_safe::{impl#23}::call_once<(alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State), std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/panic/unwind_safe.rs:275
+#10 std::panicking::catch_unwind::do_call<core::panic::unwind_safe::AssertUnwindSafe<std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)>>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/panicking.rs:576
+#11 std::panicking::catch_unwind<(alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State), core::panic::unwind_safe::AssertUnwindSafe<std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)>>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/panicking.rs:544
+
+Thread 5 (Thread 0x7f1df67fd6c0 (LWP 683609) "PTY reader"):
+#0  0x000056470ecf75d5 in rustix::backend::arch::asm::syscall5 () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/backend/linux_raw/arch/x86_64.rs:202
+#1  rustix::backend::event::syscalls::epoll_wait () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/backend/linux_raw/arch/mod.rs:117
+#2  rustix::event::epoll::wait<&std::os::fd::owned::OwnedFd, rustix::buffer::SpareCapacity<rustix::event::epoll::Event>> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/event/epoll.rs:215
+#3  polling::epoll::Poller::wait_deadline () at src/epoll.rs:219
+#4  polling::Poller::wait_impl () at src/lib.rs:754
+#5  0x000056470e9acf4a in polling::Poller::wait () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/polling-3.11.0/src/lib.rs:732
+#6  alacritty_terminal::event_loop::{impl#0}::spawn::{closure#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener> () at vendor/alacritty_terminal/src/event_loop.rs:234
+#7  std::sys::backtrace::__rust_begin_short_backtrace<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sys/backtrace.rs:166
+#8  0x000056470ea5592a in std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/thread/lifecycle.rs:70
+#9  core::panic::unwind_safe::{impl#23}::call_once<(alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State), std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/panic/unwind_safe.rs:275
+#10 std::panicking::catch_unwind::do_call<core::panic::unwind_safe::AssertUnwindSafe<std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)>>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/panicking.rs:576
+#11 std::panicking::catch_unwind<(alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State), core::panic::unwind_safe::AssertUnwindSafe<std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)>>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/panicking.rs:544
+
+Thread 4 (Thread 0x7f1df5d446c0 (LWP 779872) "PTY reader"):
+#0  0x000056470ecf75d5 in rustix::backend::arch::asm::syscall5 () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/backend/linux_raw/arch/x86_64.rs:202
+#1  rustix::backend::event::syscalls::epoll_wait () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/backend/linux_raw/arch/mod.rs:117
+#2  rustix::event::epoll::wait<&std::os::fd::owned::OwnedFd, rustix::buffer::SpareCapacity<rustix::event::epoll::Event>> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/event/epoll.rs:215
+#3  polling::epoll::Poller::wait_deadline () at src/epoll.rs:219
+#4  polling::Poller::wait_impl () at src/lib.rs:754
+#5  0x000056470e9acf4a in polling::Poller::wait () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/polling-3.11.0/src/lib.rs:732
+#6  alacritty_terminal::event_loop::{impl#0}::spawn::{closure#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener> () at vendor/alacritty_terminal/src/event_loop.rs:234
+#7  std::sys::backtrace::__rust_begin_short_backtrace<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sys/backtrace.rs:166
+#8  0x000056470ea5592a in std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/thread/lifecycle.rs:70
+#9  core::panic::unwind_safe::{impl#23}::call_once<(alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State), std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/panic/unwind_safe.rs:275
+#10 std::panicking::catch_unwind::do_call<core::panic::unwind_safe::AssertUnwindSafe<std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)>>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/panicking.rs:576
+#11 std::panicking::catch_unwind<(alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State), core::panic::unwind_safe::AssertUnwindSafe<std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)>>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/panicking.rs:544
+
+Thread 3 (Thread 0x7f1df4bfe6c0 (LWP 813184) "PTY reader"):
+#0  0x000056470ecf75d5 in rustix::backend::arch::asm::syscall5 () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/backend/linux_raw/arch/x86_64.rs:202
+#1  rustix::backend::event::syscalls::epoll_wait () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/backend/linux_raw/arch/mod.rs:117
+#2  rustix::event::epoll::wait<&std::os::fd::owned::OwnedFd, rustix::buffer::SpareCapacity<rustix::event::epoll::Event>> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/event/epoll.rs:215
+#3  polling::epoll::Poller::wait_deadline () at src/epoll.rs:219
+#4  polling::Poller::wait_impl () at src/lib.rs:754
+#5  0x000056470e9acf4a in polling::Poller::wait () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/polling-3.11.0/src/lib.rs:732
+#6  alacritty_terminal::event_loop::{impl#0}::spawn::{closure#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener> () at vendor/alacritty_terminal/src/event_loop.rs:234
+#7  std::sys::backtrace::__rust_begin_short_backtrace<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sys/backtrace.rs:166
+#8  0x000056470ea5592a in std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/thread/lifecycle.rs:70
+#9  core::panic::unwind_safe::{impl#23}::call_once<(alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State), std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/panic/unwind_safe.rs:275
+#10 std::panicking::catch_unwind::do_call<core::panic::unwind_safe::AssertUnwindSafe<std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)>>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/panicking.rs:576
+#11 std::panicking::catch_unwind<(alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State), core::panic::unwind_safe::AssertUnwindSafe<std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)>>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/panicking.rs:544
+
+Thread 2 (Thread 0x7f1ddbfff6c0 (LWP 819879) "PTY reader"):
+#0  0x000056470ecf75d5 in rustix::backend::arch::asm::syscall5 () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/backend/linux_raw/arch/x86_64.rs:202
+#1  rustix::backend::event::syscalls::epoll_wait () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/backend/linux_raw/arch/mod.rs:117
+#2  rustix::event::epoll::wait<&std::os::fd::owned::OwnedFd, rustix::buffer::SpareCapacity<rustix::event::epoll::Event>> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/event/epoll.rs:215
+#3  polling::epoll::Poller::wait_deadline () at src/epoll.rs:219
+#4  polling::Poller::wait_impl () at src/lib.rs:754
+#5  0x000056470e9acf4a in polling::Poller::wait () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/polling-3.11.0/src/lib.rs:732
+#6  alacritty_terminal::event_loop::{impl#0}::spawn::{closure#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener> () at vendor/alacritty_terminal/src/event_loop.rs:234
+#7  std::sys::backtrace::__rust_begin_short_backtrace<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/sys/backtrace.rs:166
+#8  0x000056470ea5592a in std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/thread/lifecycle.rs:70
+#9  core::panic::unwind_safe::{impl#23}::call_once<(alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State), std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/panic/unwind_safe.rs:275
+#10 std::panicking::catch_unwind::do_call<core::panic::unwind_safe::AssertUnwindSafe<std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)>>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/panicking.rs:576
+#11 std::panicking::catch_unwind<(alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State), core::panic::unwind_safe::AssertUnwindSafe<std::thread::lifecycle::spawn_unchecked::{closure#1}::{closure_env#0}<alacritty_terminal::event_loop::{impl#0}::spawn::{closure_env#0}<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, (alacritty_terminal::event_loop::EventLoop<alacritty_terminal::tty::unix::Pty, mypixels::tab::SpikeListener>, alacritty_terminal::event_loop::State)>>> () at /home/volca/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/panicking.rs:544
+
+Thread 1 (Thread 0x7f1e78ec9d80 (LWP 677342) "mypixels"):
+#0  0x000056470ecf75d5 in rustix::backend::arch::asm::syscall5 () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/backend/linux_raw/arch/x86_64.rs:202
+#1  rustix::backend::event::syscalls::epoll_wait () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/backend/linux_raw/arch/mod.rs:117
+#2  rustix::event::epoll::wait<&std::os::fd::owned::OwnedFd, rustix::buffer::SpareCapacity<rustix::event::epoll::Event>> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rustix-1.1.6/src/event/epoll.rs:215
+#3  polling::epoll::Poller::wait_deadline () at src/epoll.rs:219
+#4  polling::Poller::wait_impl () at src/lib.rs:754
+#5  0x000056470e6446ea in polling::Poller::wait () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/polling-3.11.0/src/lib.rs:732
+#6  calloop::sys::Poll::poll () at src/sys.rs:233
+#7  0x000056470e93dba3 in calloop::loop_logic::EventLoop::dispatch_events<winit::platform_impl::linux::wayland::state::WinitState> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/calloop-0.13.0/src/loop_logic.rs:384
+#8  calloop::loop_logic::EventLoop::dispatch<winit::platform_impl::linux::wayland::state::WinitState, core::option::Option<core::time::Duration>> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/calloop-0.13.0/src/loop_logic.rs:559
+#9  winit::platform_impl::linux::wayland::event_loop::EventLoop::loop_dispatch<(), core::option::Option<core::time::Duration>> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/winit-0.30.13/src/platform_impl/linux/wayland/event_loop/mod.rs:585
+#10 winit::platform_impl::linux::wayland::event_loop::EventLoop::poll_events_with_timeout<(), &mut &mut winit::event_loop::{impl#6}::run_app::{closure_env#0}<(), mypixels::App>> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/winit-0.30.13/src/platform_impl/linux/wayland/event_loop/mod.rs:289
+#11 0x000056470ea73f6d in winit::platform_impl::linux::wayland::event_loop::EventLoop::pump_events<(), &mut winit::event_loop::{impl#6}::run_app::{closure_env#0}<(), mypixels::App>> () at /home/volca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/winit-0.30.13/src/platform_impl/linux/wayland/event_loop/mod.rs:226

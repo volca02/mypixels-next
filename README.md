@@ -128,9 +128,11 @@ Features
 * Tab switcher with cached GPU previews - hold Alt: each tab is a scaled,
   live view of its own terminal; arrows move the selection. Hover a tab for
   its preview. Selection and reordering animate in both the strip and switcher.
-  With workspaces on, the switcher's header names the workspace its tiles came
-  from, and a workspace switch keeps the switcher open while Alt is held - the
-  tiles and the identity color follow the workspace you moved to.
+  With workspaces on, a compact left panel lists open workspaces with tab
+  miniatures and scrollable carousels. Click a workspace or miniature to browse
+  while Alt stays held; the main grid and identity color follow that workspace.
+  Preview space is reserved when the popup opens, so arriving images do not
+  resize the layout.
   Settings → Navigation → Tab switcher enabled turns the switcher on or off without
   changing numbered shortcuts (`tab_overview_on_alt` in the config).
   Show tab titles controls whether tabs show captions or only their numbers

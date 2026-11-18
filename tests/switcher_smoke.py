@@ -1,6 +1,7 @@
 """Real switcher interaction and visual artifacts with eight live terminals.
 
-Run with xvfb-run -a python3 tests/switcher_smoke.py. Uses an isolated HOME.
+Run with dbus-run-session -- xvfb-run -a -s "-screen 0 3840x2160x24"
+python3 tests/switcher_smoke.py. Uses an isolated HOME.
 """
 import os
 from pathlib import Path
@@ -8,6 +9,8 @@ import re
 import subprocess as sp
 import tempfile
 import time
+
+from ui_geometry import control_rect, control_center
 
 from PIL import Image
 
@@ -28,6 +31,7 @@ background_color: '#0b1216'
 foreground_color: '#dce4e7'
 accent_color: '#00dbe6'
 workspace_color_1: '#00dbe6'
+workspace_color_2: '#e676dd'
 workspaces_enabled: true
 tab_overview_opacity: 0.65
 ''')
@@ -63,7 +67,7 @@ while True:
     with path.open('ab') as out: out.write(data)
 ''')
 env = dict(os.environ, HOME=str(work), XDG_CONFIG_HOME=str(work / '.config'),
-           MYPIXELS_CONFIG=str(config), RUST_LOG='info')
+           MYPIXELS_CONFIG=str(config), RUST_LOG='info', MYPIXELS_UI_GEOMETRY='1')
 env.pop('WAYLAND_DISPLAY', None)
 env.pop('MYPIXELS_KEYS', None)
 binary = os.environ.get('MYPIXELS_BIN', str(root / 'target/debug/mypixels'))
@@ -153,26 +157,7 @@ try:
     # The selected card's outline locates its hit target without depending on text metrics.
     opened()
     selected = shot('second-selected')
-    # Find the long cyan top edge of the selected card. Preview text does
-    # not contain a continuous cyan run this long.
-    edge = None
-    for y in range(40, selected.height - 80):
-        start = None
-        for x in range(selected.width):
-            r, g, b = selected.getpixel((x, y))
-            if r < 40 and g > 190 and b > 190:
-                if start is None: start = x
-            else:
-                if start is not None and x - start > 170:
-                    edge = (start, x, y)
-                    break
-                start = None
-        if edge: break
-    assert edge, 'selected card top edge missing'
-    start, end, top = edge
-    card_width = end - start + 14
-    click_x = (start + end) / 2 - card_width - 14
-    click_y = top + 65
+    click_x, click_y = control_center(log_path, 'switcher/tab/1')
     run('xdotool', 'mousemove', '--window', wid, str(round(click_x)), str(round(click_y)), 'click', '1')
     run('xdotool', 'keyup', 'Alt_L')
     key('z')
@@ -195,6 +180,47 @@ try:
     run('xdotool', 'keyup', 'Alt_L')
     key('q')
     wait(lambda: (work / 'input-7').read_bytes() == b'q', 'small-window navigation failed')
+    # The left rail lists open workspaces and paints their parked terminals.
+    # Selecting a miniature must switch to that exact tab while Alt stays held.
+    run('xdotool', 'windowsize', wid, '1200', '800')
+    key('alt+shift+2')
+    wait(lambda: (work / 'input-8').exists(), 'second workspace missing')
+    key('ctrl+shift+t')
+    wait(lambda: (work / 'input-9').exists(), 'second workspace tab missing')
+    key('alt+shift+1')
+    opened()
+    rail = shot('workspace-rail')
+    well_rect = control_rect(log_path, 'workspace/2/tab/1')
+    mini_x, mini_y = control_center(log_path, 'workspace/2/tab/1')
+    well = rail.crop(tuple(round(value) for value in well_rect))
+    assert any(high > 80 for low, high in well.getextrema()), 'parked workspace miniature has no content'
+    run('xdotool', 'mousemove', '--window', wid, str(round(mini_x)), str(round(mini_y)), 'click', '1')
+    time.sleep(.35)
+    selected_workspace = shot('workspace-rail-selected')
+    # The rail remains visible after a workspace choice (still held Alt).
+    assert painted(selected_workspace, lambda p: p[0] > 210 and 100 < p[1] < 140 and p[2] > 200), \
+        'workspace choice dismissed the switcher'
+    run('xdotool', 'keyup', 'Alt_L')
+    key('w')
+    wait(lambda: (work / 'input-8').read_bytes() == b'w', 'workspace miniature selected the wrong terminal')
+    assert not (work / 'input-9').read_bytes(), 'workspace miniature chose the workspace front tab instead'
+    key('alt+shift+1')
+    # Large native previews must still fit beside the workspace rail in two
+    # columns. Locate the painted cards and verify vertical keyboard movement.
+    config.write_text(config.read_text() + '\ntab_overview_scale: 0.16\n')
+    key('ctrl+shift+r')
+    run('xdotool', 'windowsize', wid, '3840', '2160')
+    time.sleep(.4)
+    key('alt+1')
+    opened()
+    shot('wide-two-columns')
+    first = control_rect(log_path, 'switcher/tab/1')
+    second = control_rect(log_path, 'switcher/tab/2')
+    assert first[1] == second[1] and first[2] < second[0], (first, second)
+    key('Down')
+    run('xdotool', 'keyup', 'Alt_L')
+    key('v')
+    wait(lambda: (work / 'input-2').read_bytes() == b'v', 'Down did not move by two preview columns')
     # With workspaces off there is no workspace identity to draw, and the
     # switcher outlines the selected card with the UI accent instead. That is the
     # default configuration, so the fallback is checked rather than assumed.
@@ -206,7 +232,7 @@ try:
     opened()
     wait(switcher_visible(fallback), 'the switcher lost its outline with workspaces off')
     run('xdotool', 'keyup', 'Alt_L')
-    print('PASS: eight live previews, Tab/Shift-Tab/Enter, Escape cancellation, card clicks, small-window navigation; artifacts:', work, flush=True)
+    print('PASS: live previews, navigation, card clicks, small windows, workspace rail, exact parked-tab clicks and wide two-column layout; artifacts:', work, flush=True)
 finally:
     app.terminate()
     try: app.wait(timeout=3)

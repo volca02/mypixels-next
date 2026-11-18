@@ -6,13 +6,13 @@ isolated HOME, prompt, and config; the desktop clipboard is never used.
 """
 import os
 from pathlib import Path
-import re
 import shutil
 import subprocess as sp
 import tempfile
 import time
 
 from PIL import Image, ImageChops
+from ui_geometry import control_center
 
 root = Path(__file__).resolve().parents[1]
 binary = Path(os.environ.get('MYPIXELS_BIN', root / 'target/debug/mypixels')).resolve()
@@ -50,7 +50,7 @@ hide_single_tab: false
         args = ['fish', '--no-config', '--interactive', '--init-command', f'source {init}']
     env = dict(os.environ, HOME=str(work), ZDOTDIR=str(work), XDG_CONFIG_HOME=str(work / '.config'),
                MYPIXELS_CONFIG=str(config), MYPIXELS_KEYS=str(keys),
-               RUST_LOG='info,mypixels::tab=debug')
+               RUST_LOG='info,mypixels::tab=debug', MYPIXELS_UI_GEOMETRY='1')
     env.pop('WAYLAND_DISPLAY', None)
     log_path = work / 'app.log'
     log = log_path.open('w')
@@ -119,9 +119,8 @@ hide_single_tab: false
         assert log_path.read_text().count('code 2 ') == 1, 'sourcing integration twice duplicated execution hooks'
         # Re-run uses the command captured from the grid at C. A multiline
         # prompt or a stale '(running)' row must not replace the command.
-        strip = float(re.search(r'strip = ([0-9.]+)px', log_path.read_text()).group(1))
-        rerun_y = round(strip + 18 + 32 + 16 + 34 + 18 + 38 + 18 + 170 + 42 + 2 * 37 + 17)
-        run('xdotool', 'mousemove', '--window', wid, '900', str(rerun_y), 'click', '1')
+        rerun_x, rerun_y = control_center(log_path, 'history/rerun')
+        run('xdotool', 'mousemove', '--window', wid, str(round(rerun_x)), str(round(rerun_y)), 'click', '1')
         wait(lambda: count.read_text() == 'xx', 're-run did not execute the captured command')
         send('line:false')
         wait(lambda: 'code 3 exit Some(1)' in log_path.read_text(), 'failed exit status missing')

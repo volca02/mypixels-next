@@ -81,6 +81,7 @@ pub(crate) fn show(
             let tabs_left = MENU_WIDTH + if workspace_left { workspace_width } else { 0.0 };
             let tabs_right = width - if workspace_left { 0.0 } else { workspace_width };
             let menu = menu_button_rect(height);
+            ui_style::record_control(ui, "tab_bar/menu", menu);
             let response = ui.interact(menu, egui::Id::unique("app_menu_button"), egui::Sense::click());
             response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "mypixels menu"));
             if menu_open || response.hovered() {
@@ -131,10 +132,16 @@ pub(crate) fn show(
             let body_height = if cfg.compact_tabs {
                 (height - 2.0 * margin).max(1.0)
             } else { (height - 2.0 * margin).max(16.0) };
-            let badge_width = |index: usize| if cfg.compact_tabs {
-                // Keep a character of breathing room on either side.
-                ((index + 1).to_string().len() + 2) as f32 * 7.0 + 2.0
-            } else { 19.0 };
+            let strip = egui::Rect::from_min_max(egui::pos2(tabs_left + gap, margin),
+                egui::pos2((tabs_right - gap).max(tabs_left + gap), margin + body_height));
+            // Reserve the add control first. Tabs receive the remaining strip;
+            // when they need less space, the button follows the last tab.
+            let add_slot = strip.with_min_x((strip.right() - 28.0).max(strip.left()));
+            let tab_space = strip.with_max_x((add_slot.left() - gap).max(strip.left()));
+            let badge_widths: Vec<_> = (0..tabs.len()).map(|index| if cfg.compact_tabs {
+                ui_style::text_width(ui, &format!(" {} ", index + 1), 11.0) + 2.0
+            } else { 19.0 }).collect();
+            let badge_width = |index: usize| badge_widths[index];
             let close_width = if cfg.compact_tabs { 14.0 } else { 20.0 };
             let close_inset = if cfg.compact_tabs { 8.0 } else { 13.0 };
             let widths: Vec<f32> = tabs.iter().enumerate().map(|(index, tab)| {
@@ -146,13 +153,12 @@ pub(crate) fn show(
                 } else { (58.0, 96.0) };
                 let markers = if tab.entangled { 10.0 } else { 0.0 }
                     + if cfg.compact_tabs && tab.group.is_some() { 6.0 } else { 0.0 };
-                (title.size().x + padding + markers).clamp(minimum,
-                    (tabs_right - tabs_left - 54.0).clamp(minimum, 236.0))
+                let maximum = tab_space.width().clamp(1.0, 236.0);
+                (title.size().x + padding + markers).clamp(minimum.min(maximum), maximum)
             }).collect();
             let content_width = widths.iter().sum::<f32>() + gap * tabs.len().saturating_sub(1) as f32;
-            let viewport_width = content_width.min((tabs_right - tabs_left - 38.0).max(30.0));
-            let viewport =
-                egui::Rect::from_min_size(egui::pos2(tabs_left + gap, margin), egui::vec2(viewport_width, body_height));
+            let viewport_width = content_width.min(tab_space.width());
+            let viewport = tab_space.with_max_x(tab_space.left() + viewport_width);
             let selection = (tabs.get(active).map(|t| t.id), tabs_left.to_bits(), tabs_right.to_bits(), content_width.to_bits());
             let follow = ui.ctx().data_mut(|d| {
                 let id = egui::Id::unique("tab_bar_selection");
@@ -248,6 +254,8 @@ pub(crate) fn show(
                                     .intersect(viewport);
                             }
                             geometry.tabs[index] = target.intersect(viewport);
+                            ui_style::record_control(ui, format!("tab_bar/tab/{}", index + 1), geometry.tabs[index]);
+                            ui_style::record_control(ui, format!("tab_bar/close/{}", index + 1), geometry.close[index]);
                             let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
                             let mut tooltip = egui::Tooltip::for_enabled(&response);
                             tooltip.popup = tooltip.popup.frame(colors.menu_frame());
@@ -273,7 +281,8 @@ pub(crate) fn show(
                         }
                     });
                 });
-            let add = egui::Rect::from_min_size(egui::pos2(viewport.right() + gap, margin), egui::vec2(28.0, body_height));
+            let add = add_slot.translate(egui::vec2((viewport.right() + gap).min(add_slot.left()) - add_slot.left(), 0.0));
+            ui_style::record_control(ui, "tab_bar/add", add);
             let response = ui.interact(add, egui::Id::unique("tab_bar_add"), egui::Sense::hover());
             if response.hovered() {
                 colors.surface(ui.painter(), add, 5.0, false, true);
@@ -392,7 +401,6 @@ mod tests {
                     if compact {
                         assert!(selected.width() < normal_width);
                         assert!(height < normal_height);
-                        if !show_titles { assert!((selected.width() - 32.0).abs() < 1.0); }
                     } else {
                         normal_width = selected.width();
                         normal_height = height;

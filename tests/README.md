@@ -110,10 +110,25 @@ It uses an isolated HOME and configuration, checks persistence and cancellation,
 and leaves screenshots in `/tmp/mypixels-settings-*`. Requires xdotool,
 ImageMagick's `import`, and Pillow.
 
-`xvfb-run -a python3 tests/switcher_smoke.py` exercises eight live terminal
+`dbus-run-session -- xvfb-run -a -s "-screen 0 3840x2160x24" python3 tests/switcher_smoke.py` exercises eight live terminal
 previews, Tab/Shift-Tab and Enter, Escape restoration, card clicks, and navigation
-in a small window. It saves screenshots for visual review. The settings smoke
+in a small window. It also checks the compact workspace rail, parked previews,
+and selecting an exact tab in another workspace while holding Alt. A 3840-wide
+window checks that large previews still form two columns beside the rail and
+that Down moves to the matching tab in the next row.
+It saves screenshots for visual review. The settings smoke
 also verifies exclusive sidebar visibility and identical surface backgrounds.
+
+`dbus-run-session -- xvfb-run -a -s "-screen 0 1600x1200x24" python3 tests/run_capacity_smoke.py`
+fills a terminal with alternating-color glyphs, exceeding the former 4,096-run
+buffer limit, and checks that every cell is actually rendered. The fixture uses
+the terminal's reported dimensions and effective font metrics.
+
+Switcher, workspace, history, settings, panel-keyboard and tab-bar smoke tests
+locate controls from the semantic geometry logged with `MYPIXELS_UI_GEOMETRY=1`,
+using `tests/ui_geometry.py`.
+Popup geometry tests also check short windows with larger headings, including
+the full Close button bounds and menus anchored near the screen edge.
 
 `xvfb-run -a python3 tests/panel_keyboard_smoke.py` checks that history and
 settings remain passive for Tab, typing, Enter, Escape, and arrow keys, including

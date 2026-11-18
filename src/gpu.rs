@@ -7,7 +7,6 @@ use std::time::Instant;
 use glyphon::{Buffer, Cache, ColorMode, FontSystem, Metrics, Resolution, SwashCache, TextAtlas, TextArea, TextRenderer, Viewport};
 use winit::window::Window;
 
-use crate::MAX_RUNS;
 use crate::{damage::Damage, TerminalStyle};
 
 #[repr(C)]
@@ -323,6 +322,7 @@ pub struct Gpu {
     pub rects: Vec<RectVertex>,
     /// Pooled cosmic_text buffers for terminal runs (stable addresses).
     pub pool: Vec<Buffer>,
+    pub terminal_metrics: Metrics,
     /// Single buffer for terminal notices (terminal font metrics).
     pub prompt_buf: Buffer,
     // --- Retained terminal targets, shared by live display and previews ----
@@ -668,9 +668,8 @@ impl Gpu {
         ];
         queue.write_buffer(&composite_quad, 0, bytemuck::cast_slice(&quad));
 
-        let pool: Vec<Buffer> = (0..MAX_RUNS)
-            .map(|_| Buffer::new(font_system, Metrics::new(font_px, font_lh)))
-            .collect();
+        let pool = Vec::new();
+        let terminal_metrics = Metrics::new(font_px, font_lh);
         let prompt_buf = Buffer::new(font_system, Metrics::new(font_px, font_lh));
 
         // Kitty image pipeline. The preview bind layout and sampler fit it
@@ -755,6 +754,7 @@ impl Gpu {
             text_renderer,
             rects: Vec::with_capacity(1024),
             pool,
+            terminal_metrics,
             alpha_ok,
             prev_bufs: Vec::new(),
             prev_damage: Vec::new(),
